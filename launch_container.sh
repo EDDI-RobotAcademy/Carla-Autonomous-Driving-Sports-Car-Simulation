@@ -9,6 +9,8 @@ docker run --gpus 0 --privileged --rm -it \
            --volume=$XSOCK:$XSOCK:rw \
            --volume=$XAUTH:$XAUTH:rw \
            --volume=$HOME:$HOME \
+	   -v /dev:/dev \
+	   -v /tmp/.X11-unix:/tmp/.X11-unix:rw \
            --shm-size=1gb \
            --env="XAUTHORITY=${XAUTH}" \
            --env="DISPLAY=${DISPLAY}" \
