@@ -1103,8 +1103,8 @@ def game_loop(args):
     world = None
 
     before_time = time.time()
-    # before_w = None
-    # current_w = None
+    before_w = None
+    current_w = None
 
     try:
         client = carla.Client(args.host, args.port)
@@ -1126,7 +1126,7 @@ def game_loop(args):
 
         current_w = map.get_waypoint(vehicle.get_location())
         before_w = current_w
-        # current_w = map.get_waypoint(vehicle.get_location())
+        current_w = map.get_waypoint(vehicle.get_location())
 
         while True:
             clock.tick_busy_loop(60)
