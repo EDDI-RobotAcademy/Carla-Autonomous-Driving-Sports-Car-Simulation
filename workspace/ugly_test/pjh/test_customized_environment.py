@@ -91,10 +91,71 @@ try:
 except ImportError:
     raise RuntimeError('cannot import numpy, make sure numpy package is installed')
 
+red = carla.Color(255, 0, 0)
+green = carla.Color(0, 255, 0)
+blue = carla.Color(47, 210, 231)
+cyan = carla.Color(0, 255, 255)
+yellow = carla.Color(255, 255, 0)
+orange = carla.Color(255, 162, 0)
+white = carla.Color(255, 255, 255)
 
 # ==============================================================================
 # -- Global functions ----------------------------------------------------------
 # ==============================================================================
+
+def draw_transform(debug, trans, col=carla.Color(255, 0, 0), lt=-1):
+    debug.draw_arrow(
+        trans.location, trans.location + trans.get_forward_vector(),
+        thickness=0.05, arrow_size=0.1, color=col, life_time=lt)
+
+
+def draw_waypoint_union(debug, w0, w1, color=carla.Color(255, 0, 0), lt=5):
+    debug.draw_line(
+        w0.transform.location + carla.Location(z=0.25),
+        w1.transform.location + carla.Location(z=0.25),
+        thickness=0.1, color=color, life_time=lt, persistent_lines=False)
+    debug.draw_point(w1.transform.location + carla.Location(z=0.25), 0.1, color, lt, False)
+
+
+def draw_waypoint_info(debug, w, lt=5):
+    w_loc = w.transform.location
+    debug.draw_string(w_loc + carla.Location(z=0.5), "lane: " + str(w.lane_id), False, yellow, lt)
+    debug.draw_string(w_loc + carla.Location(z=1.0), "road: " + str(w.road_id), False, blue, lt)
+    debug.draw_string(w_loc + carla.Location(z=-.5), str(w.lane_change), False, red, lt)
+
+
+def draw_junction(debug, junction, l_time=10):
+    """Draws a junction bounding box and the initial and final waypoint of every lane."""
+    # draw bounding box
+    box = junction.bounding_box
+    point1 = box.location + carla.Location(x=box.extent.x, y=box.extent.y, z=2)
+    point2 = box.location + carla.Location(x=-box.extent.x, y=box.extent.y, z=2)
+    point3 = box.location + carla.Location(x=-box.extent.x, y=-box.extent.y, z=2)
+    point4 = box.location + carla.Location(x=box.extent.x, y=-box.extent.y, z=2)
+    debug.draw_line(
+        point1, point2,
+        thickness=0.1, color=orange, life_time=l_time, persistent_lines=False)
+    debug.draw_line(
+        point2, point3,
+        thickness=0.1, color=orange, life_time=l_time, persistent_lines=False)
+    debug.draw_line(
+        point3, point4,
+        thickness=0.1, color=orange, life_time=l_time, persistent_lines=False)
+    debug.draw_line(
+        point4, point1,
+        thickness=0.1, color=orange, life_time=l_time, persistent_lines=False)
+    # draw junction pairs (begin-end) of every lane
+    junction_w = junction.get_waypoints(carla.LaneType.Any)
+    for pair_w in junction_w:
+        draw_transform(debug, pair_w[0].transform, orange, l_time)
+        debug.draw_point(
+            pair_w[0].transform.location + carla.Location(z=0.75), 0.1, orange, l_time, False)
+        draw_transform(debug, pair_w[1].transform, orange, l_time)
+        debug.draw_point(
+            pair_w[1].transform.location + carla.Location(z=0.75), 0.1, orange, l_time, False)
+        debug.draw_line(
+            pair_w[0].transform.location + carla.Location(z=0.75),
+            pair_w[1].transform.location + carla.Location(z=0.75), 0.1, white, l_time, False)
 
 
 def find_weather_presets():
@@ -1041,6 +1102,10 @@ def game_loop(args):
     pygame.font.init()
     world = None
 
+    before_time = time.time()
+    before_w = None
+    current_w = None
+
     try:
         client = carla.Client(args.host, args.port)
         client.set_timeout(2.0)
@@ -1051,15 +1116,46 @@ def game_loop(args):
 
         hud = HUD(args.width, args.height)
         world = World(client.get_world(), hud, args)
+        debug = client.get_world().debug
         controller = KeyboardControl(world, args.autopilot)
 
         clock = pygame.time.Clock()
+
+        map = world.world.get_map()
+        vehicle = world.player
+
+        current_w = map.get_waypoint(vehicle.get_location())
+        before_w = current_w
+        current_w = map.get_waypoint(vehicle.get_location())
+
         while True:
             clock.tick_busy_loop(60)
             if controller.parse_events(client, world, clock):
                 return
             world.tick(clock)
             world.render(display)
+
+            next_w = map.get_waypoint(vehicle.get_location(),
+                                      lane_type=carla.LaneType.Driving | carla.LaneType.Shoulder | carla.LaneType.Sidewalk)
+            # Check if the vehicle is moving
+            if next_w.id != current_w.id:
+                vector = vehicle.get_velocity()
+                # Check if the vehicle is on a sidewalk
+                if time.time() - before_time >= 1:
+                    if current_w.lane_type == carla.LaneType.Sidewalk:
+                        # draw_waypoint_union(debug, current_w, next_w, cyan if current_w.is_junction else red, 60)
+                        draw_waypoint_union(debug, before_w, current_w, cyan if current_w.is_junction else red, 60)
+                    else:
+                        # draw_waypoint_union(debug, current_w, next_w, cyan if current_w.is_junction else green, 60)
+                        draw_waypoint_union(debug, before_w, current_w, cyan if current_w.is_junction else green, 60)
+                    debug.draw_string(current_w.transform.location, str('%15.0f km/h' % (
+                                3.6 * math.sqrt(vector.x ** 2 + vector.y ** 2 + vector.z ** 2))), False, orange, 60)
+                    draw_transform(debug, current_w.transform, white, 60)
+                    before_time = time.time()
+                    before_w = current_w
+
+            # Update the current waypoint and sleep for some time
+            current_w = next_w
             pygame.display.flip()
 
     finally:
