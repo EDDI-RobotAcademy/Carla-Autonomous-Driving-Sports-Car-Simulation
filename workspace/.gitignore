@@ -24,6 +24,9 @@ second_fake_session_info.txt
 *.mp3
 *.wav
 
+# exclude *.mp4
+*.mp4
+
 ### Python ###
 # Byte-compiled / optimized / DLL files
 __pycache__/
