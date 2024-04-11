@@ -4,6 +4,7 @@ import unittest
 import glob
 import os
 import sys
+import time
 
 try:
     sys.path.append(glob.glob('../carla/dist/carla-*%d.%d-%s.egg' % (
@@ -53,7 +54,7 @@ def main():
     argparser.add_argument(
         '-c', '--camera',
         metavar='C',
-        default=0,
+        default=166,
         type=int,
         help='camera follows an actor (ex: 82)')
     argparser.add_argument(
@@ -62,10 +63,10 @@ def main():
         default=1.0,
         type=float,
         help='time factor (default 1.0)')
-    argparser.add_argument(
-        '-i', '--ignore-hero',
-        action='store_true',
-        help='ignore hero vehicles')
+    # argparser.add_argument(
+    #     '-i', '--ignore-hero',
+    #     action='store_true',
+    #     help='ignore hero vehicles')
     args = argparser.parse_args()
 
     try:
@@ -77,12 +78,20 @@ def main():
         client.set_replayer_time_factor(args.time_factor)
 
         # set to ignore the hero vehicles or not
-        client.set_replayer_ignore_hero(args.ignore_hero)
+        # client.set_replayer_ignore_hero(args.ignore_hero)
 
         # replay the session
+
+        # in the case of all info == true
+        # print(client.show_recorder_file_info(args.recorder_filename))
+
+        # replying duration check
         print(client.replay_file(args.recorder_filename, args.start, args.duration, args.camera))
+        # check all collisions
         print(client.show_recorder_collisions(args.recorder_filename, "v", "a"))
 
+        # how long the object is blocked and moving less than minimum distance during specific second
+        # print(client.show_recorder_actors_blocked(args.recorder_filename, 30, 100))
 
     finally:
         pass
