@@ -347,8 +347,7 @@ class KeyboardControl(object):
                         world.recording_enabled = False
                         world.hud.notification("Recorder is OFF")
                     else:
-                        # 영상 기록
-                        client.start_recorder("/home/melodic/.config/Epic/CarlaUE4/Saved/test1.log")
+                        client.start_recorder("/home/melodic/.config/Epic/CarlaUE4/Saved/test01.log")
                         world.recording_enabled = True
                         world.hud.notification("Recorder is ON")
                 elif event.key == K_p and (pygame.key.get_mods() & KMOD_CTRL):
@@ -1072,8 +1071,8 @@ def main():
     argparser.add_argument(
         '--host',
         metavar='H',
-        default='192.168.20.35',
-        help='IP of the host server (default: 192.168.20.35)')
+        default='127.0.0.1',
+        help='IP of the host server (default: 127.0.0.1)')
     argparser.add_argument(
         '-p', '--port',
         metavar='P',
