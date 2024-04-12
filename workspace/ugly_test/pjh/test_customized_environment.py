@@ -12,6 +12,7 @@ import sys
 import unittest
 import time
 
+import cv2
 
 try:
     sys.path.append(glob.glob(os.path.dirname(os.path.dirname(os.path.abspath(__file__))) + '/carla/dist/carla-*%d.%d-%s.egg' % (
@@ -102,6 +103,7 @@ white = carla.Color(255, 255, 255)
 # ==============================================================================
 # -- Global functions ----------------------------------------------------------
 # ==============================================================================
+
 
 def draw_transform(debug, trans, col=carla.Color(255, 0, 0), lt=-1):
     debug.draw_arrow(
@@ -1023,6 +1025,8 @@ class CameraManager(object):
 
             item.append(bp)
         self.index = None
+        self.sensor_list = []
+        self.sensor_data = {}
 
     def toggle_camera(self):
         self.transform_index = (self.transform_index + 1) % len(self._camera_transforms)
@@ -1097,6 +1101,41 @@ class CameraManager(object):
         if self.recording:
             image.save_to_disk('_out/%08d' % image.frame)
 
+    def setup_multiple_sensors(self, sensor_index_list, transform_index=0):
+        # only for rgb, depth, semantic -> index : 0, 2, 5
+        rigid = carla.AttachmentType.Rigid
+        bp_lib = self._parent.get_world().get_blueprint_library()
+        camera_init_transform = self._camera_transforms[transform_index][0]
+        weak_self = weakref.ref(self)
+
+        for sensor_index in sensor_index_list:
+            camera_bp = bp_lib.find(self.sensors[sensor_index][0])
+            camera = self._parent.get_world().spawn_actor(
+                camera_bp, camera_init_transform, attach_to=self._parent, attachment_type=rigid)
+            self.sensor_list.append(camera)
+            image_w = camera_bp.get_attribute("image_size_x").as_int()
+            image_h = camera_bp.get_attribute("image_size_y").as_int()
+            self.sensor_data[self.sensors[sensor_index][0]] = np.zeros((image_h, image_w, 4))
+            camera.listen(lambda image: weak_self().sensor_callback(weak_self, image, sensor_index))
+
+        for sensor in self.sensor_list:
+            if sensor.is_listening:
+                print('Sensor is listening')
+
+    @staticmethod
+    def sensor_callback(weak_self, image, sensor_index):
+        self = weak_self()
+        image.convert(self.sensors[sensor_index][1])
+        array = np.frombuffer(image.raw_data, dtype=np.dtype("uint8"))
+        array = np.reshape(array, (image.height, image.width, 4))
+        array = array[:, :, :3]
+        array = array[:, :, ::-1]
+        self.sensor_data[self.sensors[sensor_index][0]] = array
+
+    def show_tiled_view(self):
+        for sensor in self.sensor_data.keys():
+            cv2.imshow(str(sensor), self.sensor_data[sensor])
+
 
 # ==============================================================================
 # -- game_loop() ---------------------------------------------------------------
@@ -1122,6 +1161,8 @@ def game_loop(args):
 
         hud = HUD(args.width, args.height)
         world = World(client.get_world(), hud, args)
+        world.camera_manager.setup_multiple_sensors([5])
+        world.camera_manager.show_tiled_view()
         debug = client.get_world().debug
         controller = KeyboardControl(world, args.autopilot)
 
@@ -1140,8 +1181,18 @@ def game_loop(args):
                 return
             world.tick(clock)
             world.render(display)
+            world.camera_manager.show_tiled_view()
 
-            # next_w = map.get_waypoint(vehicle.get_location(),wddddddd
+            # current_w = map.get_waypoint(
+            #     vehicle.get_location(),
+            #     lane_type=carla.LaneType.Driving | carla.LaneType.Shoulder | carla.LaneType.Sidewalk | carla.LaneType.Parking)
+
+            # if current_w.lane_type == carla.LaneType.Parking:
+            #     print("Try Parking")world.camera_manager.show_tiled_view()
+            # if current_w.lane_type == carla.LaneType.Parking:
+            #     print("Try Parking")
+
+            # next_w = map.get_waypoint(vehicle.get_location(),
             #                           lane_type=carla.LaneType.Driving | carla.LaneType.Shoulder | carla.LaneType.Sidewalk)
             # # Check if the vehicle is moving
             # if next_w.id != current_w.id:
@@ -1163,6 +1214,7 @@ def game_loop(args):
             # # Update the current waypoint and sleep for some time
             # current_w = next_w
             pygame.display.flip()
+            cv2.waitKey(1)
 
     finally:
 
@@ -1170,6 +1222,8 @@ def game_loop(args):
             client.stop_recorder()
 
         if world is not None:
+            for sensor in world.camera_manager.sensor_list:
+                sensor.destroy()
             world.destroy()
 
         pygame.quit()
@@ -1469,6 +1523,26 @@ def main():
 
     except KeyboardInterrupt:
         print('\nCancelled by user. Bye!')
+
+    finally:
+
+        if args.sync and synchronous_master:
+            settings = world.get_settings()
+            settings.synchronous_mode = False
+            settings.fixed_delta_seconds = None
+            world.apply_settings(settings)
+
+        print('\ndestroying %d vehicles' % len(vehicles_list))
+        client.apply_batch([carla.command.DestroyActor(x) for x in vehicles_list])
+
+        # stop walker controllers (list is [controller, actor, controller, actor ...])
+        for i in range(0, len(all_id), 2):
+            all_actors[i].stop()
+
+        print('\ndestroying %d walkers' % len(walkers_list))
+        client.apply_batch([carla.command.DestroyActor(x) for x in all_id])
+
+        time.sleep(0.5)
 
 
 class TestCustomizedEnvironment(unittest.TestCase):
