@@ -9,6 +9,7 @@ from __future__ import print_function
 import glob
 import os
 import sys
+import time
 
 try:
     sys.path.append(glob.glob(os.path.dirname(os.path.dirname(os.path.abspath(__file__))) + '/carla/dist/carla-*%d.%d-%s.egg' % (
@@ -347,8 +348,7 @@ class KeyboardControl(object):
                         world.recording_enabled = False
                         world.hud.notification("Recorder is OFF")
                     else:
-                        # 영상 기록
-                        client.start_recorder("/home/melodic/.config/Epic/CarlaUE4/Saved/test1.log")
+                        client.start_recorder("/home/melodic/.config/Epic/CarlaUE4/Saved/test01.log")
                         world.recording_enabled = True
                         world.hud.notification("Recorder is ON")
                 elif event.key == K_p and (pygame.key.get_mods() & KMOD_CTRL):
@@ -894,6 +894,8 @@ class CameraManager(object):
         self._parent = parent_actor
         self.hud = hud
         self.recording = False
+        self.folder_path = None
+        self.recording_counter = 0
         bound_y = 0.5 + self._parent.bounding_box.extent.y
         Attachment = carla.AttachmentType
         self._camera_transforms = [
@@ -1010,9 +1012,56 @@ class CameraManager(object):
             array = array[:, :, :3]
             array = array[:, :, ::-1]
             self.surface = pygame.surfarray.make_surface(array.swapaxes(0, 1))
-        if self.recording:
-            image.save_to_disk('_out/%08d' % image.frame)
 
+        if self.recording:
+            current_time = time.localtime()
+            current_date = time.strftime("%Y-%m-%d", current_time)
+            current_path = '_out/{}'.format(current_date)
+
+            if self.folder_path is None:
+                if not os.path.exists(current_path):
+                    self.recording_counter += 1
+                    self.folder_path = '_out/{}/{}'.format(current_date, self.recording_counter)
+                    try:
+                        os.makedirs(self.folder_path)
+                    except OSError:
+                        pass
+
+                else:
+                    if self.recording_counter == self.count_sub_folders(current_path):
+                        self.recording_counter += 1
+                        self.folder_path = '_out/{}/{}'.format(current_date, self.recording_counter)
+                        try:
+                            os.makedirs(self.folder_path)
+                        except OSError:
+                            pass
+
+                    elif self.recording_counter != self.count_sub_folders(current_path):
+                        self.recording_counter = self.count_sub_folders(current_path) + 1
+                        self.folder_path = '_out/{}/{}'.format(current_date, self.recording_counter)
+                        try:
+                            os.makedirs(self.folder_path)
+                        except OSError:
+                            pass
+
+            file_name = time.strftime('%H-%M-%S', current_time)
+            image.save_to_disk('{}/{}.png'.format(self.folder_path, file_name))
+
+        else:
+            self.folder_path = None
+            # self.recording_counter += 1
+
+    def count_sub_folders(self, directory):
+        sub_items = os.listdir(directory)
+        folder_count = sum(os.path.isdir(os.path.join(directory, item)) for item in sub_items)
+
+        return folder_count
+
+    # def count_sub_folders(self, directory):
+    #     sub_items = os.listdir(directory)
+    #     sub_folders = [item for item in sub_items if os.path.isdir(os.path.join(directory, item))]
+    #     folder_count = len(sub_folders)
+    #     return folder_count
 
 # ==============================================================================
 # -- game_loop() ---------------------------------------------------------------
@@ -1072,8 +1121,8 @@ def main():
     argparser.add_argument(
         '--host',
         metavar='H',
-        default='192.168.20.35',
-        help='IP of the host server (default: 192.168.20.35)')
+        default='127.0.0.1',
+        help='IP of the host server (default: 127.0.0.1)')
     argparser.add_argument(
         '-p', '--port',
         metavar='P',
