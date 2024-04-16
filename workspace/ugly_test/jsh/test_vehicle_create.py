@@ -1057,13 +1057,6 @@ def game_loop(args):
         traffic_manager.set_hybrid_physics_radius(50.0)
 
 
-        waypoints = world.map.generate_waypoints(distance)
-        for w in waypoints:
-            world.world.debug.draw_string(w.transform.location, 'O', draw_shadow=False,
-                                          color=carla.Color(r=255, g=0, b=0), life_time=120.0,
-                                          persistent_lines=True)
-
-
         clock = pygame.time.Clock()
         while True:
             clock.tick_busy_loop(60)
