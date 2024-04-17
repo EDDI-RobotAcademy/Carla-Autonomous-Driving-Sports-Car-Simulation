@@ -21,14 +21,26 @@ tested env:
 -carla 0.9.7
 
 """
+import argparse
+import logging
 import time
 import random
 import carla
 
-invert_steering_point = -7.8
+try:
+    import pygame
+except ImportError:
+    raise RuntimeError('cannot import pygame, make sure pygame package is installed')
+
+try:
+    import numpy as np
+except ImportError:
+    raise RuntimeError('cannot import numpy, make sure numpy package is installed')
+
+invert_steering_point = -29.0
 parked_locations = [
-    carla.Transform(carla.Location(x=60.4, y=-10.62, z=0.05), carla.Rotation(yaw=180)),
-    carla.Transform(carla.Location(x=47.0, y=-10.62, z=0.05), carla.Rotation(yaw=180))
+    carla.Transform(carla.Location(x=3.7, y=-35.5, z=0.5), carla.Rotation(yaw=180)),
+    carla.Transform(carla.Location(x=3.7, y=-29.8, z=0.5), carla.Rotation(yaw=180))
     ]
 
 class CarlaParkVehicle():
@@ -52,7 +64,7 @@ class CarlaParkVehicle():
 
         #create ego vehicle
         bp = random.choice(blueprint_library.filter('vehicle.tesla.*'))
-        init_pos = carla.Transform(carla.Location(x=61.4, y=-7.62, z=0.05), carla.Rotation(yaw=180))
+        init_pos = carla.Transform(carla.Location(x=-1.5, y=-42, z=0.5), carla.Rotation(yaw=90))
         self.vehicle = self.world.spawn_actor(bp, init_pos)
         self.actor_list.append(self.vehicle)
 
@@ -85,26 +97,26 @@ class CarlaParkVehicle():
         """
         while True:
             self.vehicle.apply_control(
-                carla.VehicleControl(throttle=0.3, steer=0.6, brake=0.0, reverse=True))
+                carla.VehicleControl(throttle=0.3))
             time.sleep(0.1)
-            if self.vehicle.get_location().y < invert_steering_point:
-                break
-        while self.vehicle.get_location().y < invert_steering_point:
-            self.vehicle.apply_control(
-                carla.VehicleControl(throttle=0.2, steer=-0.6, brake=0.0, reverse=True))
-            time.sleep(0.1)
-            if abs(self.vehicle.get_transform().rotation.yaw) > 180 - 2:
-                self.vehicle.apply_control(
-                    carla.VehicleControl(throttle=0.0, steer=0.0, brake=1.0, reverse=True))
-                break
-        self.vehicle.apply_control(carla.VehicleControl(throttle=0.0, brake=1.0))
-        time.sleep(0.5)
-        self.vehicle.apply_control(
-            carla.VehicleControl(throttle=0.5, steer=0.0, brake=0.0, reverse=False))
-        time.sleep(1.2)
-        self.vehicle.apply_control(carla.VehicleControl(throttle=0.0, brake=1.0))
-        time.sleep(0.5)
-        return
+            if self.vehicle.get_location().y > invert_steering_point:
+                return
+        # while self.vehicle.get_location().y > invert_steering_point:
+        #     self.vehicle.apply_control(
+        #         carla.VehicleControl(throttle=0.2, steer=-0.6, brake=0.0, reverse=True))
+        #     time.sleep(0.1)
+        #     if abs(self.vehicle.get_transform().rotation.yaw) > 180 - 2:
+        #         self.vehicle.apply_control(
+        #             carla.VehicleControl(throttle=0.0, steer=0.0, brake=1.0, reverse=True))
+        #         break
+        # self.vehicle.apply_control(carla.VehicleControl(throttle=0.0, brake=1.0))
+        # time.sleep(0.5)
+        # self.vehicle.apply_control(
+        #     carla.VehicleControl(throttle=0.5, steer=0.0, brake=0.0, reverse=False))
+        # time.sleep(1.2)
+        # self.vehicle.apply_control(carla.VehicleControl(throttle=0.0, brake=1.0))
+        # time.sleep(0.5)
+        # return
 
     def destroy(self):
         """
@@ -124,7 +136,6 @@ class CarlaParkVehicle():
 
         self.move_to_init_parking()
         self.park()
-
 
 
 # ==============================================================================
