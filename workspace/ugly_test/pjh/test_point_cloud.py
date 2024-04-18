@@ -1,8 +1,21 @@
+import time
 import unittest
 
 import open3d as o3d
 import numpy as np
 import os
+
+
+def get_local_ply():
+    # List of file paths for the .ply files
+    current_dir = os.path.dirname(__file__)
+    lidar_data_folder_path = os.path.join(current_dir, "lidar_output")
+    files = os.listdir(lidar_data_folder_path)
+    ply_list = [os.path.join(lidar_data_folder_path, file) for file in files if file.endswith(".ply")]
+
+    # Read the point clouds and store them
+    point_clouds = [o3d.io.read_point_cloud(ply) for ply in ply_list]
+    return point_clouds
 
 
 def get_grid_lineset(h_min_val, h_max_val, w_min_val, w_max_val, ignore_axis, grid_length=1, nth_line=5):
@@ -76,16 +89,14 @@ def get_grid_lineset(h_min_val, h_max_val, w_min_val, w_max_val, ignore_axis, gr
 
 class TestPointCloud(unittest.TestCase):
     current_index = 0
+    point_clouds = None
+    exit = False
 
-    def test_init(self):
-        current_dir = os.getcwd()
-        lidar_data_folder_path = os.path.join(current_dir, "lidar_output")
-        files = os.listdir(lidar_data_folder_path)
-        ply_list = [os.path.join(lidar_data_folder_path, file) for file in files if file.endswith(".ply")]
-        point_cloud = [o3d.io.read_point_cloud(ply) for ply in ply_list]
-        o3d.visualization.draw_geometries(point_cloud)
+    def test_basic_point_cloud(self):
+        point_clouds = get_local_ply()
+        o3d.visualization.draw_geometries(point_clouds)
 
-    def test_some(self):
+    def test_continuous_point_cloud_with_grid(self):
         range_min_xyz = (-80, -80, 0)
         range_max_xyz = (80, 80, 80)
         x_min_val, y_min_val, z_min_val = range_min_xyz
@@ -94,21 +105,9 @@ class TestPointCloud(unittest.TestCase):
         lineset_zx, lineset_nth_zx = get_grid_lineset(x_min_val, x_max_val, z_min_val, z_max_val, 1, 1)
         lineset_xy, lineset_nth_xy = get_grid_lineset(y_min_val, y_max_val, x_min_val, x_max_val, 2, 1)
 
-        def get_local_ply():
-            # List of file paths for the .ply files
-            current_dir = os.path.dirname(__file__)
-            lidar_data_folder_path = os.path.join(current_dir, "lidar_output")
-            files = os.listdir(lidar_data_folder_path)
-            ply_list = [os.path.join(lidar_data_folder_path, file) for file in files if file.endswith(".ply")]
-
-            # Read the point clouds and store them
-            point_clouds = [o3d.io.read_point_cloud(ply) for ply in ply_list]
-            print(point_clouds)
-            return point_clouds
-
         # Initialize visualizer with key callbacks
         vis = o3d.visualization.VisualizerWithKeyCallback()
-        vis.create_window(height=1080)
+        vis.create_window()
 
         # Load point clouds
         point_clouds = get_local_ply()
@@ -164,6 +163,76 @@ class TestPointCloud(unittest.TestCase):
         # Run the visualizer
         vis.run()
         vis.destroy_window()
+
+    def test_point_pick(self):
+        # shift + mouse left click = choose circle
+        # shift + mouse right click = remove circle
+        # shift +/- = change size of circle
+
+        point_clouds = get_local_ply()
+        vis = o3d.visualization.VisualizerWithEditing()
+        for i, pcd in enumerate(point_clouds):
+            vis.create_window(width=800, height=800)
+            vis.add_geometry(pcd)
+            vis.run()  # user picks points
+            vis.destroy_window()
+            indices = vis.get_picked_points()
+            pcd_points = np.array(pcd.points)
+
+            print("\n{}th point cloud".format(i))
+            for index in indices:
+                print(index, pcd_points[index])
+
+    def test_point_cloud_in_real_time(self):
+        range_min_xyz = (-80, -80, 0)
+        range_max_xyz = (80, 80, 80)
+        x_min_val, y_min_val, z_min_val = range_min_xyz
+        x_max_val, y_max_val, z_max_val = range_max_xyz
+        lineset_yz, lineset_nth_yz = get_grid_lineset(z_min_val, z_max_val, y_min_val, y_max_val, 0, 1)
+        lineset_zx, lineset_nth_zx = get_grid_lineset(x_min_val, x_max_val, z_min_val, z_max_val, 1, 1)
+        lineset_xy, lineset_nth_xy = get_grid_lineset(y_min_val, y_max_val, x_min_val, x_max_val, 2, 1)
+
+        vis = o3d.visualization.VisualizerWithKeyCallback()
+        vis.create_window()
+
+        self.point_clouds = get_local_ply()
+
+        pcd = o3d.geometry.PointCloud()
+        pcd.points = o3d.utility.Vector3dVector()
+        pcd.points.extend(np.asarray(self.point_clouds[self.current_index].points))
+
+        coord = o3d.geometry.TriangleMesh().create_coordinate_frame(size=3, origin=np.array([0.0, 0.0, 0.0]))
+
+        vis.add_geometry(pcd)
+        vis.add_geometry(coord)
+        vis.add_geometry(lineset_yz)
+        vis.add_geometry(lineset_zx)
+        vis.add_geometry(lineset_xy)
+        vis.add_geometry(lineset_nth_yz)
+        vis.add_geometry(lineset_nth_zx)
+        vis.add_geometry(lineset_nth_xy)
+
+        def quit_callback(vis):
+            vis.close()  # Close the visualizer
+            self.exit = True
+
+        vis.register_key_callback(ord('Q'), quit_callback)
+
+        while True:
+            if len(self.point_clouds) <= self.current_index or self.exit is True:
+                break
+            vis.poll_events()
+            vis.update_renderer()
+            pcd.points = o3d.utility.Vector3dVector()
+            pcd.points.extend(np.asarray(self.point_clouds[self.current_index].points))
+            vis.update_geometry(pcd)
+
+            self.point_clouds = get_local_ply()
+            self.current_index += 1
+            print(self.current_index)
+
+        vis.destroy_window()
+        print('Real time point cloud test is done.')
 
 
 if __name__ == '__main__':
