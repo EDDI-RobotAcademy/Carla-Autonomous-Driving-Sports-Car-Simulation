@@ -72,6 +72,7 @@ try:
     from pygame.locals import K_l
     from pygame.locals import K_m
     from pygame.locals import K_n
+    from pygame.locals import K_o
     from pygame.locals import K_p
     from pygame.locals import K_k
     from pygame.locals import K_j
@@ -81,6 +82,7 @@ try:
     from pygame.locals import K_v
     from pygame.locals import K_w
     from pygame.locals import K_x
+    from pygame.locals import K_y
     from pygame.locals import K_z
     from pygame.locals import K_MINUS
     from pygame.locals import K_EQUALS
@@ -195,6 +197,8 @@ class World(object):
         self.gnss_sensor = None
         self.imu_sensor = None
         self.radar_sensor = None
+        self.los_sensor = None
+        self.lidar_sensor = None
         self.camera_manager = None
         self._weather_presets = find_weather_presets()
         self._weather_index = 0
@@ -299,6 +303,24 @@ class World(object):
             self.radar_sensor.sensor.destroy()
             self.radar_sensor = None
 
+    def toggle_los(self):
+        if self.los_sensor is None:
+            self.los_sensor = LineOfSightSensor(self.player, self.hud)
+            self.hud.notification('LineOfSightSensor On')
+        elif self.los_sensor.sensor is not None:
+            self.los_sensor.sensor.destroy()
+            self.los_sensor = None
+            self.hud.notification('LineOfSightSensor Off')
+
+    def toggle_lidar(self):
+        if self.lidar_sensor is None:
+            self.lidar_sensor = LidarSensor(self.player, self.hud)
+            self.hud.notification('LiDAR On')
+        elif self.lidar_sensor.sensor is not None:
+            self.lidar_sensor.sensor.destroy()
+            self.lidar_sensor = None
+            self.hud.notification('LiDAR Off')
+
     def tick(self, clock):
         self.hud.tick(self, clock)
 
@@ -389,6 +411,10 @@ class KeyboardControl(object):
                     world.next_weather()
                 elif event.key == K_g:
                     world.toggle_radar()
+                elif event.key == K_o:
+                    world.toggle_los()
+                elif event.key == K_y:
+                    world.toggle_lidar()
                 elif event.key == K_BACKQUOTE:
                     world.camera_manager.next_sensor()
                 elif event.key == K_n:
@@ -912,8 +938,9 @@ class RadarSensor(object):
         world = self._parent.get_world()
         self.debug = world.debug
         bp = world.get_blueprint_library().find('sensor.other.radar')
-        bp.set_attribute('horizontal_fov', str(35))
+        bp.set_attribute('horizontal_fov', str(100))
         bp.set_attribute('vertical_fov', str(20))
+        bp.set_attribute('range', str(5))
         self.sensor = world.spawn_actor(
             bp,
             carla.Transform(
@@ -934,8 +961,23 @@ class RadarSensor(object):
         # points = np.frombuffer(radar_data.raw_data, dtype=np.dtype('f4'))
         # points = np.reshape(points, (len(radar_data), 4))
 
+        points = np.frombuffer(radar_data.raw_data, dtype=np.dtype('f4'))
+        points = np.reshape(points, (len(radar_data), 4))
+
+        print(points)
+
+        # code convert array into list and measure distance
+        L = []
+        pointslist = points.tolist()
+        for i in range(len(pointslist)):
+            L.append(pointslist[i - 1][-1])
+
+        ave = sum(L) / len(L)
+        print(ave)
+
         current_rot = radar_data.transform.rotation
         for detect in radar_data:
+            print("Depth:", detect.depth)
             azi = math.degrees(detect.azimuth)
             alt = math.degrees(detect.altitude)
             # The 0.25 adjusts a bit the distance so the dots can
@@ -963,6 +1005,80 @@ class RadarSensor(object):
                 color=carla.Color(r, g, b))
 
 # ==============================================================================
+# -- LineOfSightSensor -------------------------------------------------------------
+# ==============================================================================
+
+
+class LineOfSightSensor(object):
+    def __init__(self, parent_actor, hud):
+        self.sensor = None
+        self._history = []
+        self._parent = parent_actor
+        self._hud = hud
+        self._event_count = 0
+        self.sensor_transform = carla.Transform(carla.Location(x=1.6, z=1.7), carla.Rotation(yaw=0))  # Put this sensor on the windshield of the car.
+        world = self._parent.get_world()
+        bp = world.get_blueprint_library().find('sensor.other.obstacle')
+        bp.set_attribute('distance', '10')
+        bp.set_attribute('hit_radius', '10')
+        bp.set_attribute('only_dynamics', 'False')
+        # bp.set_attribute('debug_linetrace', 'true')
+        # bp.set_attribute('sensor_tick', '1')
+        # self.sensor = world.spawn_actor(bp, self.sensor_transform, attach_to=self._parent)
+        self.sensor = world.spawn_actor(bp, carla.Transform(), attach_to=self._parent)
+        weak_self = weakref.ref(self)
+        self.sensor.listen(lambda event: LineOfSightSensor._on_LOS(weak_self, event))
+
+    @staticmethod
+    def _on_LOS(weak_self, event):
+        self = weak_self()
+        if not self:
+            return
+        # print (str(event.other_actor))
+        # if event.other_actor.type_id.startswith('vehicle.'):
+        #     # print ("Event %s, in line of sight with %s at distance %u" % (self._event_count, event.other_actor.type_id, event.distance))
+        #     self._event_count += 1
+
+        if event.other_actor.type_id.startswith('static.vehicle') and event.distance < 1:
+            for item in self._history:
+                if item[0] == event.other_actor.id:
+                    return
+
+            self._history.append((event.other_actor.id, event.other_actor.get_location()))
+
+            print("Event %s, too close with parked %s (less than 1 meter)" % (self._event_count, event.other_actor.type_id))
+            obstacle_location = event.other_actor.get_location()
+            obstacle_id = event.other_actor.id
+            x = obstacle_location.x
+            y = obstacle_location.y
+            z = obstacle_location.z
+            print("id = %u, location = x: %f, y: %f, z: %f" % (obstacle_id, x, y, z))
+
+            self._event_count += 1
+
+# ==============================================================================
+# -- CameraManager -------------------------------------------------------------
+# ==============================================================================
+
+
+class LidarSensor(object):
+    def __init__(self, parent_actor, hud):
+        self.sensor = None
+        self._history = []
+        self._parent = parent_actor
+        self._hud = hud
+        self._event_count = 0
+        self.sensor_transform = carla.Transform(carla.Location(y=-1.3, z=1), carla.Rotation(pitch=15.0, yaw=-90.0))  # Put this sensor on the windshield of the car.
+        world = self._parent.get_world()
+        bp = world.get_blueprint_library().find('sensor.lidar.ray_cast')
+        bp.set_attribute('channels', '32')
+        bp.set_attribute('points_per_second', '90000')
+        bp.set_attribute('rotation_frequency', '30')
+        self.sensor = world.spawn_actor(bp, self.sensor_transform, attach_to=self._parent)
+        self.sensor.listen(lambda point_cloud: point_cloud.save_to_disk('lidar_output/%.6d.ply' % point_cloud.frame))
+
+
+# ==============================================================================
 # -- CameraManager -------------------------------------------------------------
 # ==============================================================================
 
@@ -979,9 +1095,10 @@ class CameraManager(object):
         Attachment = carla.AttachmentType
         self._camera_transforms = [
             (carla.Transform(carla.Location(x=-10.5, z=2.5), carla.Rotation(pitch=8.0)), Attachment.Rigid),
-            (carla.Transform(carla.Location(x=11.5, z=2.5), carla.Rotation(pitch=8.0, yaw=-180.0)), Attachment.Rigid),
-            # (carla.Transform(carla.Location(x=1.6, z=1.7)), Attachment.Rigid),
-            # (carla.Transform(carla.Location(x=5.5, y=1.5, z=1.5)), Attachment.Rigid),
+            # (carla.Transform(carla.Location(x=bound_x-0.65, z=0.5)), Attachment.Rigid),
+            (carla.Transform(carla.Location(y=-1.3, z=1), carla.Rotation(pitch=15.0, yaw=-90.0)), Attachment.Rigid),
+            # # (carla.Transform(carla.Location(x=1.6, z=1.7)), Attachment.Rigid),
+            # # (carla.Transform(carla.Location(x=5.5, y=1.5, z=1.5)), Attachment.Rigid),
             (carla.Transform(carla.Location(x=0.0, z=10.0), carla.Rotation(pitch=-90.0)), Attachment.Rigid),
             (carla.Transform(carla.Location(x=-3, y=-bound_y, z=0.5)), Attachment.Rigid),
             (carla.Transform(carla.Location(x=-3, y=bound_y, z=0.5)), Attachment.Rigid),
@@ -1161,27 +1278,27 @@ def game_loop(args):
 
         hud = HUD(args.width, args.height)
         world = World(client.get_world(), hud, args)
-        world.camera_manager.setup_multiple_sensors([5])
-        world.camera_manager.show_tiled_view()
-        debug = client.get_world().debug
+        # world.camera_manager.setup_multiple_sensors([5])
+        # world.camera_manager.show_tiled_view()
+        # debug = client.get_world().debug
         controller = KeyboardControl(world, args.autopilot)
 
         clock = pygame.time.Clock()
 
-        map = world.world.get_map()
-        vehicle = world.player
+        # map = world.world.get_map()
+        # vehicle = world.player
 
         # current_w = map.get_waypoint(vehicle.get_location())
         # before_w = current_w
         # current_w = map.get_waypoint(vehicle.get_location())
 
         while True:
-            clock.tick_busy_loop(60)
+            clock.tick_busy_loop(30)
             if controller.parse_events(client, world, clock):
                 return
             world.tick(clock)
             world.render(display)
-            world.camera_manager.show_tiled_view()
+            # world.camera_manager.show_tiled_view()
 
             # current_w = map.get_waypoint(
             #     vehicle.get_location(),
@@ -1214,7 +1331,7 @@ def game_loop(args):
             # # Update the current waypoint and sleep for some time
             # current_w = next_w
             pygame.display.flip()
-            cv2.waitKey(1)
+            # cv2.waitKey(1)
 
     finally:
 
