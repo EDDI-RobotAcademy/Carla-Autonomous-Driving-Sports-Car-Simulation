@@ -35,65 +35,31 @@ class TestParkingSimulateUpdate():
 
     def move_to_init_parking(self):
         while True:
-            self.vehicle.apply_control(carla.VehicleControl(throttle=0.3, steer=0.5, brake=0.0))
-            if self.vehicle.get_location().x > -34:
+            self.vehicle.apply_control(carla.VehicleControl(throttle=0.3, steer=0.2, brake=0.0))
+            if self.vehicle.get_location().y < -29:
                 break
         while True:
-            self.vehicle.apply_control(carla.VehicleControl(throttle=0.1, steer=-0.5, brake=0.0))
-            if self.vehicle.get_transform().rotation.yaw < 90.2:
+            self.vehicle.apply_control(carla.VehicleControl(throttle=0.2, steer=-0.5, brake=0.0))
+            if abs(self.vehicle.get_transform().rotation.yaw) > 90.1:
+                self.vehicle.apply_control(
+                    carla.VehicleControl(throttle=0.0, steer=0.0, brake=1.0, reverse=False))
                 break
         return
 
     def moving_parking(self):
-        vehicle_loc = self.vehicle.get_location()
-        vehicle_rot = self.vehicle.get_rotation()
-        vehicle_control = self.vehicle.apply_control()
-
         while True:
-            vehicle_control(carla.VehicleControl(throttle=0.2, brake=0.0))
-        return
-
-    def park(self):
-        while True:
-            self.vehicle.apply_control(
-                carla.VehicleControl(throttle=0.1,  steer=0.0, brake=0.0))
-            if self.vehicle.get_location().y > first_point:
+            self.vehicle.apply_control(carla.VehicleControl(throttle=0.2, steer=0.26, brake=0.0))
+            if abs(self.vehicle.get_transform().rotation.yaw) < 0.1:
                 self.vehicle.apply_control(
-                    carla.VehicleControl(throttle=0.0, steer=0.0, brake=1.0, reverse=True))
+                    carla.VehicleControl(throttle=0.0, steer=0.0, brake=1.0, reverse=False))
                 break
-        while True:
-             self.vehicle.apply_control(
-                 carla.VehicleControl(throttle=0.1, steer=-0.852, brake=0.0, reverse=True))
-             if self.vehicle.get_location().y < second_point:
-                 self.vehicle.apply_control(
-                     carla.VehicleControl(throttle=0.0, steer=0.0, brake=1.0, reverse=True))
-                 break
-        while True:
-            self.vehicle.apply_control(
-                carla.VehicleControl(throttle=0.1, steer=0.3, brake=0.0))
-            if self.vehicle.get_location().y > -31.0:
+            self.vehicle.apply_control(carla.VehicleControl(throttle=0.2, steer=0.0, brake=0.0))
+            if self.vehicle.get_location().x > 12:
                 self.vehicle.apply_control(
-                    carla.VehicleControl(throttle=0.0, steer=0.0, brake=1.0, reverse=True))
+                    carla.VehicleControl(throttle=0.0, steer=0.0, brake=1.0, reverse=False))
+                time.sleep(2.5)
                 break
-        while True:
-            self.vehicle.apply_control(carla.VehicleControl(throttle=0.1, steer=-0.3, brake=0.0, reverse=True))
-            if self.vehicle.get_location().y < -31:
-                self.vehicle.apply_control(
-                    carla.VehicleControl(throttle=0.0, steer=0.0, brake=1.0, reverse=True))
-                break
-        while True:
-            self.vehicle.apply_control(carla.VehicleControl(throttle=0.05, steer=-0.65, brake=0.0, reverse=True))
-            if abs(self.vehicle.get_transform().rotation.yaw) > 179.5:
-                self.vehicle.apply_control(
-                    carla.VehicleControl(throttle=0.0, steer=0.0, brake=1.0, reverse=True))
-                break
-        while True:
-            self.vehicle.apply_control(carla.VehicleControl(throttle=0.05, steer=0, brake=0.0, reverse=True))
-            if self.vehicle.get_location().x > 3.6:
-                self.vehicle.apply_control(
-                    carla.VehicleControl(throttle=0.0, steer=0.0, brake=1.0, reverse=True))
-                time.sleep(2.0)
-                break
+            self.vehicle.apply_control(carla.VehicleControl(throttle=0.2, steer=0.0, brake=0.0))
         return
 
     def destroy(self):
@@ -105,7 +71,7 @@ class TestParkingSimulateUpdate():
 
     def run(self):
         self.move_to_init_parking()
-        #self.moving_parking()
+        self.moving_parking()
         #self.park()
 
 
