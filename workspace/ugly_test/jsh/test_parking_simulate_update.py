@@ -1,29 +1,20 @@
-
 import time
 import random
-import unittest
-
 import carla
-
-try:
-    import pygame
-except ImportError:
-    raise RuntimeError('cannot import pygame, make sure pygame package is installed')
+import pygame
 
 try:
     import numpy as np
 except ImportError:
     raise RuntimeError('cannot import numpy, make sure numpy package is installed')
 
-first_point = -28.0
-second_point = -31.5
-
 class TestParkingSimulateUpdate():
 
     def __init__(self):
-        client = carla.Client('localhost', 2000)
-        client.set_timeout(2.0)
-        self.world = client.get_world()
+        pygame.init()
+        self.clock = pygame.time.Clock()
+
+        self.world = carla.Client('localhost', 2000).get_world()
         self.actor_list = []
         blueprint_library = self.world.get_blueprint_library()
 
@@ -32,6 +23,15 @@ class TestParkingSimulateUpdate():
         self.vehicle = self.world.spawn_actor(bp, init_pos)
         self.actor_list.append(self.vehicle)
 
+        self.parking_points = [
+            carla.Location(x=14, y=-42),
+            carla.Location(x=14, y=-13),
+            carla.Location(x=-33, y=-13),
+            carla.Location(x=-33, y=-42)
+        ]
+
+        self.start_points = []
+        self.current_point_index = None
 
     def move_to_init_parking(self):
         while True:
@@ -44,22 +44,54 @@ class TestParkingSimulateUpdate():
                 self.vehicle.apply_control(
                     carla.VehicleControl(throttle=0.0, steer=0.0, brake=1.0, reverse=False))
                 break
-        return
+        self.set_start_point()
+
+    def set_start_point(self):
+        vehicle_location = self.vehicle.get_location()
+        min_distance = float('inf')
+        min_index = None
+        for idx, point in enumerate(self.parking_points):
+            distance = np.linalg.norm(np.array([vehicle_location.x, vehicle_location.y]) - np.array([point.x, point.y]))
+            if distance < min_distance:
+                min_distance = distance
+                min_index = idx
+        self.current_point_index = min_index
 
     def moving_parking(self):
-        while True:
-            self.vehicle.apply_control(carla.VehicleControl(throttle=0.2, steer=0.26, brake=0.0))
-            if abs(self.vehicle.get_transform().rotation.yaw) < 0.1:
-                self.vehicle.apply_control(
-                    carla.VehicleControl(throttle=0.0, steer=0.0, brake=1.0, reverse=False))
-                break
-            self.vehicle.apply_control(carla.VehicleControl(throttle=0.2, steer=0.0, brake=0.0))
-            if self.vehicle.get_location().x > 12:
-                self.vehicle.apply_control(
-                    carla.VehicleControl(throttle=0.0, steer=0.0, brake=1.0, reverse=False))
-                time.sleep(2.5)
-                break
-            self.vehicle.apply_control(carla.VehicleControl(throttle=0.2, steer=0.0, brake=0.0))
+        running = True
+        while running:
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT or (event.type == pygame.KEYDOWN and event.key == pygame.K_q):
+                    running = False
+
+            vehicle_location = self.vehicle.get_location()
+
+            min_distance = float('inf')
+            min_index = None
+            for idx, point in enumerate(self.parking_points):
+                distance = np.linalg.norm(
+                    np.array([vehicle_location.x, vehicle_location.y]) - np.array([point.x, point.y]))
+                if distance < min_distance:
+                    min_distance = distance
+                    min_index = idx
+
+            next_index = (min_index + 1) % len(self.parking_points)
+            next_point = self.parking_points[next_index]
+
+            distance = np.linalg.norm(
+                np.array([next_point.x, next_point.y]) - np.array([vehicle_location.x, vehicle_location.y]))
+
+            if distance < 20.0:
+                self.current_point_index = next_index
+
+            else:
+                target_rotation = np.degrees(
+                    np.arctan2(next_point.y - vehicle_location.y, next_point.x - vehicle_location.x))
+                self.vehicle.apply_control(carla.VehicleControl(throttle=0.2, steer=(target_rotation - self.vehicle.get_transform().rotation.yaw) / 180.0,
+                                                                brake=0.0))
+
+            self.clock.tick(60)
+
         return
 
     def destroy(self):
@@ -68,16 +100,10 @@ class TestParkingSimulateUpdate():
             actor.destroy()
         print('done.')
 
-
     def run(self):
         self.move_to_init_parking()
         self.moving_parking()
-        #self.park()
-
-
-# ==============================================================================
-# -- main() --------------------------------------------------------------------
-# ==============================================================================
+        pygame.quit()
 
 
 def main():
@@ -88,6 +114,5 @@ def main():
         if ego_vehicle is not None:
             ego_vehicle.destroy()
 
-
 if __name__ == '__main__':
-        main()
+    main()
