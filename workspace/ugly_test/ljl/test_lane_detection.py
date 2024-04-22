@@ -1177,6 +1177,18 @@ class LaneDetector:
         return line_image
 
 
+    def calculate_angle(self, left_line, right_line):
+        if left_line is not None and right_line is not None:
+            left_slope = (left_line[3] - left_line[1]) / (left_line[2] - left_line[0])
+            right_slope = (right_line[3] - right_line[1]) / (right_line[2] - right_line[0])
+
+            angle_rad = np.arctan(abs((right_slope - left_slope) / (1 + left_slope * right_slope)))
+            angle_deg = np.degrees(angle_rad)
+            return angle_deg
+
+        else:
+            return None
+
     def run_lane_detection(self):
         lane_image = np.copy(self.camera_image)
         canny_image = self.canny(lane_image)
@@ -1189,11 +1201,24 @@ class LaneDetector:
             if averaged_lines is not None:
                 line_image = self.display_lines(lane_image, averaged_lines)
                 combined_image = cv2.addWeighted(lane_image, 0.8, line_image, 1, 1)
+
+                left_line = averaged_lines[0]
+                right_line = averaged_lines[1]
+
+                angle = self.calculate_angle(left_line, right_line)
+
+                if angle is not None:
+                    font = cv2.FONT_HERSHEY_SIMPLEX
+                    cv2.putText(combined_image, 'Angle: {:.2f} degress'.format(angle), (50, 50), font, 1, (255, 255, 255), 2, cv2.LINE_AA)
+
+
             else:
                 combined_image = lane_image
 
         else:
             combined_image = lane_image
+
+
 
         # cv2.imshow('image', combined_image)
         cv2.imshow('polylines', self.roi_image(combined_image))
