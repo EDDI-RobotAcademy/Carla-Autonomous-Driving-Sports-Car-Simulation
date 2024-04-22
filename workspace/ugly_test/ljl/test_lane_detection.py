@@ -1169,8 +1169,11 @@ class LaneDetector:
                 y2 = min(max(y2, 0), image.shape[0] - 1)
 
                 cv2.line(line_image, (x1, y1), (x2, y2), (255, 0, 0), 10)
+            line_image = cv2.resize(line_image, (image.shape[1], image.shape[0]))
 
-        line_image = cv2.resize(line_image, (image.shape[1], image.shape[0]))
+        else:
+            line_image = None
+
         return line_image
 
 
