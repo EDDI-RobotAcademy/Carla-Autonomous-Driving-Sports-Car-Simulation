@@ -117,7 +117,8 @@ class TestPointCloud(unittest.TestCase):
         pcd.points = o3d.utility.Vector3dVector()
         for i in range(len(point_clouds) - 1):
             points = np.asarray(point_clouds[i].points)
-            pcd.points.extend(points)
+            # fix left / right inversion
+            pcd.points.extend(points * [-1, 1, 1])
 
         pcd_1 = pcd.voxel_down_sample(voxel_size=0.05)
         pcd_2, inliers = pcd_1.remove_radius_outlier(nb_points=20, radius=0.3)
@@ -147,14 +148,46 @@ class TestPointCloud(unittest.TestCase):
                 bbox_object = sub_cloud.get_axis_aligned_bounding_box()
                 bbox_object.color = (0, 0, 1)
                 bbox_objects.append(bbox_object)
-                print("ID: {}\ncenter: {}\nbox points: {}".format(i, bbox_object.get_center(), bbox_object.get_box_points()))
+                print("ID: {}\n"
+                      "center: {}\n"
+                      "box points: {}"
+                      .format(i, bbox_object.get_center(), np.asarray(bbox_object.get_box_points())))
 
-        print("Number of Boundinb Box : ", len(bbox_objects))
+        print("Number of Bounding Box : ", len(bbox_objects))
 
         list_of_visuals = []
         list_of_visuals.append(pcd_3)
         list_of_visuals.extend(bbox_objects)
-        o3d.visualization.draw_geometries(list_of_visuals)
+
+        range_min_xyz = (-80, -80, 0)
+        range_max_xyz = (80, 80, 80)
+        x_min_val, y_min_val, z_min_val = range_min_xyz
+        x_max_val, y_max_val, z_max_val = range_max_xyz
+        lineset_yz, lineset_nth_yz = get_grid_lineset(z_min_val, z_max_val, y_min_val, y_max_val, 0, 1)
+        lineset_zx, lineset_nth_zx = get_grid_lineset(x_min_val, x_max_val, z_min_val, z_max_val, 1, 1)
+        lineset_xy, lineset_nth_xy = get_grid_lineset(y_min_val, y_max_val, x_min_val, x_max_val, 2, 1)
+
+        coord = o3d.geometry.TriangleMesh().create_coordinate_frame(size=3, origin=np.array([0.0, 0.0, 0.0]))
+        # x = red, y = green, and z = blue
+
+        vis = o3d.visualization.Visualizer()
+        vis.create_window()
+
+        vis.add_geometry(pcd_3)
+        for j in range(len(bbox_objects)):
+            vis.add_geometry(bbox_objects[j])
+        vis.add_geometry(coord)
+        vis.add_geometry(lineset_yz)
+        vis.add_geometry(lineset_zx)
+        vis.add_geometry(lineset_xy)
+        vis.add_geometry(lineset_nth_yz)
+        vis.add_geometry(lineset_nth_zx)
+        vis.add_geometry(lineset_nth_xy)
+
+        vis.run()
+        vis.destroy_window()
+
+        # o3d.visualization.draw_geometries(list_of_visuals)
 
     def test_bounding_box_of_field(self):
         point_clouds = get_local_ply()
