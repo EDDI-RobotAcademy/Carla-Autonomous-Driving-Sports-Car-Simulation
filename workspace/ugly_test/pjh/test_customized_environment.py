@@ -1068,12 +1068,13 @@ class LidarSensor(object):
         self._parent = parent_actor
         self._hud = hud
         self._event_count = 0
-        self.sensor_transform = carla.Transform(carla.Location(y=-1.3, z=1), carla.Rotation(pitch=15.0, yaw=-90.0))  # Put this sensor on the windshield of the car.
+        self.sensor_transform = carla.Transform(carla.Location(z=2), carla.Rotation(yaw=-90.0))  # Put this sensor on the windshield of the car.
         world = self._parent.get_world()
         bp = world.get_blueprint_library().find('sensor.lidar.ray_cast')
         bp.set_attribute('channels', '32')
         bp.set_attribute('points_per_second', '90000')
         bp.set_attribute('rotation_frequency', '30')
+        bp.set_attribute('range', '50')
         self.sensor = world.spawn_actor(bp, self.sensor_transform, attach_to=self._parent)
         self.sensor.listen(lambda point_cloud: point_cloud.save_to_disk('lidar_output/%.6d.ply' % point_cloud.frame))
 

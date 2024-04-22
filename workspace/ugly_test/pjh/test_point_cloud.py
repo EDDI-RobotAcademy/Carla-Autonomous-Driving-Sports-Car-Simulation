@@ -4,6 +4,9 @@ import unittest
 import open3d as o3d
 import numpy as np
 import os
+import matplotlib.pyplot as plt
+from sklearn.cluster import HDBSCAN
+import pandas as pd
 
 
 def get_local_ply():
@@ -16,6 +19,17 @@ def get_local_ply():
     # Read the point clouds and store them
     point_clouds = [o3d.io.read_point_cloud(ply) for ply in ply_list]
     return point_clouds
+
+
+def get_mesh():
+    # List of file paths for the .ply files
+    current_dir = os.path.dirname(__file__)
+    lidar_data_folder_path = os.path.join(current_dir, "lidar_output")
+    files = os.listdir(lidar_data_folder_path)
+    ply_list = [os.path.join(lidar_data_folder_path, file) for file in files if file.endswith(".ply")]
+    # mesh = [o3d.io.read_triangle_mesh(ply_list[i]) for i in range(len(ply_list) - 1)]
+    mesh = o3d.io.read_triangle_mesh(ply_list[0])
+    return mesh
 
 
 def get_grid_lineset(h_min_val, h_max_val, w_min_val, w_max_val, ignore_axis, grid_length=1, nth_line=5):
@@ -95,6 +109,68 @@ class TestPointCloud(unittest.TestCase):
     def test_basic_point_cloud(self):
         point_clouds = get_local_ply()
         o3d.visualization.draw_geometries(point_clouds)
+
+    def test_detect_bounding_boxes_of_objects(self):
+        point_clouds = get_local_ply()
+
+        pcd = o3d.geometry.PointCloud()
+        pcd.points = o3d.utility.Vector3dVector()
+        for i in range(len(point_clouds) - 1):
+            points = np.asarray(point_clouds[i].points)
+            pcd.points.extend(points)
+
+        pcd_1 = pcd.voxel_down_sample(voxel_size=0.05)
+        pcd_2, inliers = pcd_1.remove_radius_outlier(nb_points=20, radius=0.3)
+        plane_model, road_inliers = pcd_2.segment_plane(distance_threshold=0.1, ransac_n=3, num_iterations=100)
+        pcd_3 = pcd_2.select_by_index(road_inliers, invert=True)
+
+        clusterer = HDBSCAN(min_cluster_size=30)
+        clusterer.fit(np.array(pcd_3.points))
+        labels = clusterer.labels_
+
+        max_label = labels.max()
+        print(f'point cloud has {max_label + 1} clusters')
+        colors = plt.get_cmap("tab20")(labels / max_label if max_label > 0 else 1)
+        colors[labels < 0] = 0
+        pcd_3.colors = o3d.utility.Vector3dVector(colors[:, :3])
+
+        bbox_objects = []
+        indexes = pd.Series(range(len(labels))).groupby(labels, sort=False).apply(list).tolist()
+
+        MAX_POINTS = 3000
+        MIN_POINTS = 50
+
+        for i in range(0, len(indexes)):
+            nb_points = len(pcd_3.select_by_index(indexes[i]).points)
+            if (nb_points > MIN_POINTS and nb_points < MAX_POINTS):
+                sub_cloud = pcd_3.select_by_index(indexes[i])
+                bbox_object = sub_cloud.get_axis_aligned_bounding_box()
+                bbox_object.color = (0, 0, 1)
+                bbox_objects.append(bbox_object)
+                print("ID: {}\ncenter: {}\nbox points: {}".format(i, bbox_object.get_center(), bbox_object.get_box_points()))
+
+        print("Number of Boundinb Box : ", len(bbox_objects))
+
+        list_of_visuals = []
+        list_of_visuals.append(pcd_3)
+        list_of_visuals.extend(bbox_objects)
+        o3d.visualization.draw_geometries(list_of_visuals)
+
+    def test_bounding_box_of_field(self):
+        point_clouds = get_local_ply()
+        pcd = o3d.geometry.PointCloud()
+        pcd.points = o3d.utility.Vector3dVector()
+        for i in range(len(point_clouds) - 1):
+            points = np.asarray(point_clouds[i].points)
+            pcd.points.extend(points)
+        aabb = pcd.get_axis_aligned_bounding_box()
+        aabb.color = (1, 0, 0)
+        obb = pcd.get_oriented_bounding_box()
+        obb.color = (0, 1, 0)
+        print(np.asarray(obb.get_box_points()))
+        coord = o3d.geometry.TriangleMesh().create_coordinate_frame(size=3, origin=np.array([0.0, 0.0, 0.0]))
+
+        o3d.visualization.draw_geometries([pcd, aabb, obb, coord])
 
     def test_continuous_point_cloud_with_grid(self):
         range_min_xyz = (-80, -80, 0)
@@ -233,6 +309,47 @@ class TestPointCloud(unittest.TestCase):
 
         vis.destroy_window()
         print('Real time point cloud test is done.')
+
+    def test_ply_point_cloud(self):
+        ply_point_cloud = o3d.data.PLYPointCloud()
+        pcd = o3d.io.read_point_cloud(ply_point_cloud.path)
+        print(pcd)
+        print(np.asarray(pcd.points))
+        o3d.visualization.draw_geometries([pcd],
+                                          zoom=0.3412,
+                                          front=[0.4257, -0.2125, -0.8795],
+                                          lookat=[2.6172, 2.0475, 1.532],
+                                          up=[-0.0694, -0.9768, 0.2024])
+
+    def test_voxel_point_cloud(self):
+        ply_point_cloud = o3d.data.PLYPointCloud()
+        pcd = o3d.io.read_point_cloud(ply_point_cloud.path)
+        downpcd = pcd.voxel_down_sample(voxel_size=0.05)
+        o3d.visualization.draw_geometries([downpcd],
+                                          zoom=0.3412,
+                                          front=[0.4257, -0.2125, -0.8795],
+                                          lookat=[2.6172, 2.0475, 1.532],
+                                          up=[-0.0694, -0.9768, 0.2024])
+
+    def test_plane_segment(self):
+        pcd_point_cloud = o3d.data.PCDPointCloud()
+        pcd = o3d.io.read_point_cloud(pcd_point_cloud.path)
+
+        plane_model, inliers = pcd.segment_plane(distance_threshold=0.01,
+                                                 ransac_n=3,
+                                                 num_iterations=1000)
+
+        [a, b, c, d] = plane_model
+        print(f"Plane equation: {a:.2f}x + {b:.2f}y + {c:.2f}z + {d:.2f} = 0")
+
+        inlier_cloud = pcd.select_by_index(inliers)
+        inlier_cloud.paint_uniform_color([1.0, 0, 0])
+        outlier_cloud = pcd.select_by_index(inliers, invert=True)
+        o3d.visualization.draw_geometries([inlier_cloud, outlier_cloud],
+                                          zoom=0.8,
+                                          front=[-0.4999, -0.1659, -0.8499],
+                                          lookat=[2.1813, 2.0619, 2.0999],
+                                          up=[0.1204, -0.9852, 0.1215])
 
 
 if __name__ == '__main__':
