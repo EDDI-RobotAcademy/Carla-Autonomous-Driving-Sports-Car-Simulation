@@ -1,5 +1,48 @@
-from __future__ import print_function
+# -*- coding: utf-8 -*-
+# !/usr/bin/env python
 
+# Copyright (c) 2019 Computer Vision Center (CVC) at the Universitat Autonoma de
+# Barcelona (UAB).
+#
+# This work is licensed under the terms of the MIT license.
+# For a copy, see <https://opensource.org/licenses/MIT>.
+
+# Allows controlling a vehicle with a keyboard. For a simpler and more
+# documented example, please take a look at tutorial.py.
+
+"""
+Welcome to CARLA manual control.
+
+Use ARROWS or WASD keys for control.
+
+    W            : throttle
+    S            : brake
+    AD           : steer
+    Q            : toggle reverse
+    Space        : hand-brake
+    P            : toggle autopilot
+    M            : toggle manual transmission
+    ,/.          : gear up/down
+
+    TAB          : change sensor position
+    `            : next sensor
+    [1-9]        : change to sensor [1-9]
+    C            : change weather (Shift+C reverse)
+    Backspace    : change vehicle
+
+    R            : toggle recording images to disk
+
+    CTRL + R     : toggle recording of simulation (replacing any previous)
+    CTRL + P     : start replaying last recorded simulation
+    CTRL + +     : increments the start time of the replay by 1 second (+SHIFT = 10 seconds)
+    CTRL + -     : decrements the start time of the replay by 1 second (+SHIFT = 10 seconds)
+
+    F1           : toggle HUD
+    H/?          : toggle help
+    ESC          : quit
+"""
+
+from __future__ import print_function
 
 # ==============================================================================
 # -- find carla module ---------------------------------------------------------
@@ -9,16 +52,14 @@ from __future__ import print_function
 import glob
 import os
 import sys
-import time
 
 try:
-    sys.path.append(glob.glob(os.path.dirname(os.path.dirname(os.path.abspath(__file__))) + '/carla/dist/carla-*%d.%d-%s.egg' % (
+    sys.path.append(glob.glob('../carla/dist/carla-*%d.%d-%s.egg' % (
         sys.version_info.major,
         sys.version_info.minor,
         'win-amd64' if os.name == 'nt' else 'linux-x86_64'))[0])
 except IndexError:
     pass
-
 
 # ==============================================================================
 # -- imports -------------------------------------------------------------------
@@ -28,7 +69,6 @@ except IndexError:
 import carla
 
 from carla import ColorConverter as cc
-
 import argparse
 import collections
 import datetime
@@ -37,6 +77,7 @@ import math
 import random
 import re
 import weakref
+import cv2
 
 try:
     import pygame
@@ -58,26 +99,15 @@ try:
     from pygame.locals import K_TAB
     from pygame.locals import K_UP
     from pygame.locals import K_a
-    from pygame.locals import K_b
     from pygame.locals import K_c
     from pygame.locals import K_d
-    from pygame.locals import K_g
     from pygame.locals import K_h
-    from pygame.locals import K_i
-    from pygame.locals import K_l
     from pygame.locals import K_m
-    from pygame.locals import K_n
     from pygame.locals import K_p
-    from pygame.locals import K_k
-    from pygame.locals import K_j
     from pygame.locals import K_q
     from pygame.locals import K_r
     from pygame.locals import K_s
-    from pygame.locals import K_v
     from pygame.locals import K_w
-    from pygame.locals import K_x
-    from pygame.locals import K_y
-    from pygame.locals import K_z
     from pygame.locals import K_MINUS
     from pygame.locals import K_EQUALS
 except ImportError:
@@ -87,6 +117,22 @@ try:
     import numpy as np
 except ImportError:
     raise RuntimeError('cannot import numpy, make sure numpy package is installed')
+
+
+# ==============================================================================
+# -- Global and Junghwan Kim functions -----------------------------------------
+# ==============================================================================
+
+Camera_image = np.zeros(shape=(480, 640, 3), dtype=np.uint8)
+
+def sumMatrix(A, B):
+    A = np.array(A)
+    B = np.array(B)
+    answer = A + B
+    return answer.tolist()
+
+
+test_con = 0  # test function
 
 
 # ==============================================================================
@@ -112,51 +158,25 @@ def get_actor_display_name(actor, truncate=250):
 
 
 class World(object):
-    def __init__(self, carla_world, hud, args):
+    def __init__(self, carla_world, hud, actor_filter, actor_role_name='hero'):
         self.world = carla_world
-        self.actor_role_name = args.rolename
-        try:
-            self.map = self.world.get_map()
-        except RuntimeError as error:
-            print('RuntimeError: {}'.format(error))
-            print('  The server could not send the OpenDRIVE (.xodr) file:')
-            print('  Make sure it exists, has the same name of your town, and is correct.')
-            sys.exit(1)
+        self.actor_role_name = actor_role_name
+        self.map = self.world.get_map()
         self.hud = hud
         self.player = None
         self.collision_sensor = None
         self.lane_invasion_sensor = None
         self.gnss_sensor = None
-        self.imu_sensor = None
-        self.radar_sensor = None
         self.camera_manager = None
         self._weather_presets = find_weather_presets()
         self._weather_index = 0
-        self._actor_filter = args.filter
-        self._gamma = args.gamma
+        self._actor_filter = actor_filter
         self.restart()
         self.world.on_tick(hud.on_world_tick)
         self.recording_enabled = False
         self.recording_start = 0
-        self.constant_velocity_enabled = False
-        self.current_map_layer = 0
-        self.map_layer_names = [
-            carla.MapLayer.NONE,
-            carla.MapLayer.Buildings,
-            carla.MapLayer.Decals,
-            carla.MapLayer.Foliage,
-            carla.MapLayer.Ground,
-            carla.MapLayer.ParkedVehicles,
-            carla.MapLayer.Particles,
-            carla.MapLayer.Props,
-            carla.MapLayer.StreetLights,
-            carla.MapLayer.Walls,
-            carla.MapLayer.All
-        ]
 
     def restart(self):
-        self.player_max_speed = 1.589
-        self.player_max_speed_fast = 3.713
         # Keep same camera config if the camera manager exists.
         cam_index = self.camera_manager.index if self.camera_manager is not None else 0
         cam_pos_index = self.camera_manager.transform_index if self.camera_manager is not None else 0
@@ -166,17 +186,6 @@ class World(object):
         if blueprint.has_attribute('color'):
             color = random.choice(blueprint.get_attribute('color').recommended_values)
             blueprint.set_attribute('color', color)
-        if blueprint.has_attribute('driver_id'):
-            driver_id = random.choice(blueprint.get_attribute('driver_id').recommended_values)
-            blueprint.set_attribute('driver_id', driver_id)
-        if blueprint.has_attribute('is_invincible'):
-            blueprint.set_attribute('is_invincible', 'true')
-        # set the max speed
-        if blueprint.has_attribute('speed'):
-            self.player_max_speed = float(blueprint.get_attribute('speed').recommended_values[1])
-            self.player_max_speed_fast = float(blueprint.get_attribute('speed').recommended_values[2])
-        else:
-            print("No recommended values for 'speed' attribute")
         # Spawn the player.
         if self.player is not None:
             spawn_point = self.player.get_transform()
@@ -186,10 +195,6 @@ class World(object):
             self.destroy()
             self.player = self.world.try_spawn_actor(blueprint, spawn_point)
         while self.player is None:
-            if not self.map.get_spawn_points():
-                print('There are no spawn points available in your map/town.')
-                print('Please add some Vehicle Spawn Point to your UE4 scene.')
-                sys.exit(1)
             spawn_points = self.map.get_spawn_points()
             spawn_point = random.choice(spawn_points) if spawn_points else carla.Transform()
             self.player = self.world.try_spawn_actor(blueprint, spawn_point)
@@ -197,8 +202,7 @@ class World(object):
         self.collision_sensor = CollisionSensor(self.player, self.hud)
         self.lane_invasion_sensor = LaneInvasionSensor(self.player, self.hud)
         self.gnss_sensor = GnssSensor(self.player)
-        self.imu_sensor = IMUSensor(self.player)
-        self.camera_manager = CameraManager(self.player, self.hud, self._gamma)
+        self.camera_manager = CameraManager(self.player, self.hud)
         self.camera_manager.transform_index = cam_pos_index
         self.camera_manager.set_sensor(cam_index, notify=False)
         actor_type = get_actor_display_name(self.player)
@@ -211,34 +215,14 @@ class World(object):
         self.hud.notification('Weather: %s' % preset[1])
         self.player.get_world().set_weather(preset[0])
 
-    def next_map_layer(self, reverse=False):
-        self.current_map_layer += -1 if reverse else 1
-        self.current_map_layer %= len(self.map_layer_names)
-        selected = self.map_layer_names[self.current_map_layer]
-        self.hud.notification('LayerMap selected: %s' % selected)
-
-    def load_map_layer(self, unload=False):
-        selected = self.map_layer_names[self.current_map_layer]
-        if unload:
-            self.hud.notification('Unloading map layer: %s' % selected)
-            self.world.unload_map_layer(selected)
-        else:
-            self.hud.notification('Loading map layer: %s' % selected)
-            self.world.load_map_layer(selected)
-
-    def toggle_radar(self):
-        if self.radar_sensor is None:
-            self.radar_sensor = RadarSensor(self.player)
-        elif self.radar_sensor.sensor is not None:
-            self.radar_sensor.sensor.destroy()
-            self.radar_sensor = None
-
     def tick(self, clock):
         self.hud.tick(self, clock)
 
     def render(self, display):
         self.camera_manager.render(display)
+        #################################################################################
         self.hud.render(display)
+        #################################################################################
 
     def destroy_sensors(self):
         self.camera_manager.sensor.destroy()
@@ -246,20 +230,15 @@ class World(object):
         self.camera_manager.index = None
 
     def destroy(self):
-        if self.radar_sensor is not None:
-            self.toggle_radar()
-        sensors = [
+        actors = [
             self.camera_manager.sensor,
             self.collision_sensor.sensor,
             self.lane_invasion_sensor.sensor,
             self.gnss_sensor.sensor,
-            self.imu_sensor.sensor]
-        for sensor in sensors:
-            if sensor is not None:
-                sensor.stop()
-                sensor.destroy()
-        if self.player is not None:
-            self.player.destroy()
+            self.player]
+        for actor in actors:
+            if actor is not None:
+                actor.destroy()
 
 
 # ==============================================================================
@@ -268,16 +247,11 @@ class World(object):
 
 
 class KeyboardControl(object):
-    """Class that handles keyboard input."""
     def __init__(self, world, start_in_autopilot):
-        self._carsim_enabled = False
-        self._carsim_road = False
         self._autopilot_enabled = start_in_autopilot
         if isinstance(world.player, carla.Vehicle):
             self._control = carla.VehicleControl()
-            self._lights = carla.VehicleLightState.NONE
             world.player.set_autopilot(self._autopilot_enabled)
-            world.player.set_light_state(self._lights)
         elif isinstance(world.player, carla.Walker):
             self._control = carla.WalkerControl()
             self._autopilot_enabled = False
@@ -288,8 +262,6 @@ class KeyboardControl(object):
         world.hud.notification("Press 'H' or '?' for help.", seconds=4.0)
 
     def parse_events(self, client, world, clock):
-        if isinstance(self._control, carla.VehicleControl):
-            current_lights = self._lights
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 return True
@@ -297,22 +269,9 @@ class KeyboardControl(object):
                 if self._is_quit_shortcut(event.key):
                     return True
                 elif event.key == K_BACKSPACE:
-                    if self._autopilot_enabled:
-                        world.player.set_autopilot(False)
-                        world.restart()
-                        world.player.set_autopilot(True)
-                    else:
-                        world.restart()
+                    world.restart()
                 elif event.key == K_F1:
                     world.hud.toggle_info()
-                elif event.key == K_v and pygame.key.get_mods() & KMOD_SHIFT:
-                    world.next_map_layer(reverse=True)
-                elif event.key == K_v:
-                    world.next_map_layer()
-                elif event.key == K_b and pygame.key.get_mods() & KMOD_SHIFT:
-                    world.load_map_layer(unload=True)
-                elif event.key == K_b:
-                    world.load_map_layer()
                 elif event.key == K_h or (event.key == K_SLASH and pygame.key.get_mods() & KMOD_SHIFT):
                     world.hud.help.toggle()
                 elif event.key == K_TAB:
@@ -321,23 +280,8 @@ class KeyboardControl(object):
                     world.next_weather(reverse=True)
                 elif event.key == K_c:
                     world.next_weather()
-                elif event.key == K_g:
-                    world.toggle_radar()
                 elif event.key == K_BACKQUOTE:
                     world.camera_manager.next_sensor()
-                elif event.key == K_n:
-                    world.camera_manager.next_sensor()
-                elif event.key == K_y:
-                    world.camera_manager.set_sensor(5)
-                elif event.key == K_w and (pygame.key.get_mods() & KMOD_CTRL):
-                    if world.constant_velocity_enabled:
-                        world.player.disable_constant_velocity()
-                        world.constant_velocity_enabled = False
-                        world.hud.notification("Disabled Constant Velocity Mode")
-                    else:
-                        world.player.enable_constant_velocity(carla.Vector3D(17, 0, 0))
-                        world.constant_velocity_enabled = True
-                        world.hud.notification("Enabled Constant Velocity Mode at 60 km/h")
                 elif event.key > K_0 and event.key <= K_9:
                     world.camera_manager.set_sensor(event.key - 1 - K_0)
                 elif event.key == K_r and not (pygame.key.get_mods() & KMOD_CTRL):
@@ -348,7 +292,7 @@ class KeyboardControl(object):
                         world.recording_enabled = False
                         world.hud.notification("Recorder is OFF")
                     else:
-                        client.start_recorder("/home/melodic/.config/Epic/CarlaUE4/Saved/test01.log")
+                        client.start_recorder("manual_recording.rec")
                         world.recording_enabled = True
                         world.hud.notification("Recorder is ON")
                 elif event.key == K_p and (pygame.key.get_mods() & KMOD_CTRL):
@@ -356,7 +300,7 @@ class KeyboardControl(object):
                     client.stop_recorder()
                     world.recording_enabled = False
                     # work around to fix camera at start of replaying
-                    current_index = world.camera_manager.index
+                    currentIndex = world.camera_manager.index
                     world.destroy_sensors()
                     # disable autopilot
                     self._autopilot_enabled = False
@@ -364,18 +308,7 @@ class KeyboardControl(object):
                     world.hud.notification("Replaying file 'manual_recording.rec'")
                     # replayer
                     client.replay_file("manual_recording.rec", world.recording_start, 0, 0)
-                    world.camera_manager.set_sensor(current_index)
-                elif event.key == K_k and (pygame.key.get_mods() & KMOD_CTRL):
-                    print("k pressed")
-                    world.player.enable_carsim("d:/CVC/carsim/DataUE4/ue4simfile.sim")
-                elif event.key == K_j and (pygame.key.get_mods() & KMOD_CTRL):
-                    self._carsim_road = not self._carsim_road
-                    world.player.use_carsim_road(self._carsim_road)
-                    print("j pressed, using carsim road =", self._carsim_road)
-                # elif event.key == K_i and (pygame.key.get_mods() & KMOD_CTRL):
-                #     print("i pressed")
-                #     imp = carla.Location(z=50000)
-                #     world.player.add_impulse(imp)
+                    world.camera_manager.set_sensor(currentIndex)
                 elif event.key == K_MINUS and (pygame.key.get_mods() & KMOD_CTRL):
                     if pygame.key.get_mods() & KMOD_SHIFT:
                         world.recording_start -= 10
@@ -400,86 +333,47 @@ class KeyboardControl(object):
                         self._control.gear = max(-1, self._control.gear - 1)
                     elif self._control.manual_gear_shift and event.key == K_PERIOD:
                         self._control.gear = self._control.gear + 1
-                    elif event.key == K_p and not pygame.key.get_mods() & KMOD_CTRL:
+                    elif event.key == K_p and not (pygame.key.get_mods() & KMOD_CTRL):
                         self._autopilot_enabled = not self._autopilot_enabled
                         world.player.set_autopilot(self._autopilot_enabled)
-                        world.hud.notification(
-                            'Autopilot %s' % ('On' if self._autopilot_enabled else 'Off'))
-                    elif event.key == K_l and pygame.key.get_mods() & KMOD_CTRL:
-                        current_lights ^= carla.VehicleLightState.Special1
-                    elif event.key == K_l and pygame.key.get_mods() & KMOD_SHIFT:
-                        current_lights ^= carla.VehicleLightState.HighBeam
-                    elif event.key == K_l:
-                        # Use 'L' key to switch between lights:
-                        # closed -> position -> low beam -> fog
-                        if not self._lights & carla.VehicleLightState.Position:
-                            world.hud.notification("Position lights")
-                            current_lights |= carla.VehicleLightState.Position
-                        else:
-                            world.hud.notification("Low beam lights")
-                            current_lights |= carla.VehicleLightState.LowBeam
-                        if self._lights & carla.VehicleLightState.LowBeam:
-                            world.hud.notification("Fog lights")
-                            current_lights |= carla.VehicleLightState.Fog
-                        if self._lights & carla.VehicleLightState.Fog:
-                            world.hud.notification("Lights off")
-                            current_lights ^= carla.VehicleLightState.Position
-                            current_lights ^= carla.VehicleLightState.LowBeam
-                            current_lights ^= carla.VehicleLightState.Fog
-                    elif event.key == K_i:
-                        current_lights ^= carla.VehicleLightState.Interior
-                    elif event.key == K_z:
-                        current_lights ^= carla.VehicleLightState.LeftBlinker
-                    elif event.key == K_x:
-                        current_lights ^= carla.VehicleLightState.RightBlinker
-
+                        world.hud.notification('Autopilot %s' % ('On' if self._autopilot_enabled else 'Off'))
         if not self._autopilot_enabled:
             if isinstance(self._control, carla.VehicleControl):
                 self._parse_vehicle_keys(pygame.key.get_pressed(), clock.get_time())
                 self._control.reverse = self._control.gear < 0
-                # Set automatic control-related vehicle lights
-                if self._control.brake:
-                    current_lights |= carla.VehicleLightState.Brake
-                else: # Remove the Brake flag
-                    current_lights &= ~carla.VehicleLightState.Brake
-                if self._control.reverse:
-                    current_lights |= carla.VehicleLightState.Reverse
-                else: # Remove the Reverse flag
-                    current_lights &= ~carla.VehicleLightState.Reverse
-                if current_lights != self._lights: # Change the light state only if necessary
-                    self._lights = current_lights
-                    world.player.set_light_state(carla.VehicleLightState(self._lights))
             elif isinstance(self._control, carla.WalkerControl):
-                self._parse_walker_keys(pygame.key.get_pressed(), clock.get_time(), world)
+                self._parse_walker_keys(pygame.key.get_pressed(), clock.get_time())
             world.player.apply_control(self._control)
 
     def _parse_vehicle_keys(self, keys, milliseconds):
-        if keys[K_UP] or keys[K_w]:
-            self._control.throttle = min(self._control.throttle + 0.01, 1)
-        else:
-            self._control.throttle = 0.0
-
-        if keys[K_DOWN] or keys[K_s]:
-            self._control.brake = min(self._control.brake + 0.2, 1)
-        else:
-            self._control.brake = 0
-
+        self._control.throttle = 1.0 if keys[K_UP] or keys[K_w] else 0.0
         steer_increment = 5e-4 * milliseconds
         if keys[K_LEFT] or keys[K_a]:
-            if self._steer_cache > 0:
-                self._steer_cache = 0
-            else:
-                self._steer_cache -= steer_increment
+            self._steer_cache -= steer_increment
         elif keys[K_RIGHT] or keys[K_d]:
-            if self._steer_cache < 0:
-                self._steer_cache = 0
-            else:
-                self._steer_cache += steer_increment
+            self._steer_cache += steer_increment
         else:
             self._steer_cache = 0.0
         self._steer_cache = min(0.7, max(-0.7, self._steer_cache))
         self._control.steer = round(self._steer_cache, 1)
+        self._control.brake = 1.0 if keys[K_DOWN] or keys[K_s] else 0.0
         self._control.hand_brake = keys[K_SPACE]
+
+    def _parse_walker_keys(self, keys, milliseconds):
+        self._control.speed = 0.0
+        if keys[K_DOWN] or keys[K_s]:
+            self._control.speed = 0.0
+        if keys[K_LEFT] or keys[K_a]:
+            self._control.speed = .01
+            self._rotation.yaw -= 0.08 * milliseconds
+        if keys[K_RIGHT] or keys[K_d]:
+            self._control.speed = .01
+            self._rotation.yaw += 0.08 * milliseconds
+        if keys[K_UP] or keys[K_w]:
+            self._control.speed = 5.556 if pygame.key.get_mods() & KMOD_SHIFT else 2.778
+        self._control.jump = keys[K_SPACE]
+        self._rotation.yaw = round(self._rotation.yaw, 1)
+        self._control.direction = self._rotation.get_forward_vector()
 
     @staticmethod
     def _is_quit_shortcut(key):
@@ -495,16 +389,15 @@ class HUD(object):
     def __init__(self, width, height):
         self.dim = (width, height)
         font = pygame.font.Font(pygame.font.get_default_font(), 20)
-        font_name = 'courier' if os.name == 'nt' else 'mono'
-        fonts = [x for x in pygame.font.get_fonts() if font_name in x]
+        fonts = [x for x in pygame.font.get_fonts() if 'mono' in x]
         default_font = 'ubuntumono'
         mono = default_font if default_font in fonts else fonts[0]
         mono = pygame.font.match_font(mono)
-        self._font_mono = pygame.font.Font(mono, 12 if os.name == 'nt' else 14)
+        self._font_mono = pygame.font.Font(mono, 14)
         self._notifications = FadingText(font, (width, 40), (0, height - 40))
-        # self.help = HelpText(pygame.font.Font(mono, 16), width, height)
+        self.help = HelpText(pygame.font.Font(mono, 24), width, height)
         self.server_fps = 0
-        self.frame = 0
+        self.frame_number = 0
         self.simulation_time = 0
         self._show_info = True
         self._info_text = []
@@ -513,7 +406,7 @@ class HUD(object):
     def on_world_tick(self, timestamp):
         self._server_clock.tick()
         self.server_fps = self._server_clock.get_fps()
-        self.frame = timestamp.frame
+        self.frame_number = timestamp.frame_count
         self.simulation_time = timestamp.elapsed_seconds
 
     def tick(self, world, clock):
@@ -523,28 +416,26 @@ class HUD(object):
         t = world.player.get_transform()
         v = world.player.get_velocity()
         c = world.player.get_control()
-        compass = world.imu_sensor.compass
-        heading = 'N' if compass > 270.5 or compass < 89.5 else ''
-        heading += 'S' if 90.5 < compass < 269.5 else ''
-        heading += 'E' if 0.5 < compass < 179.5 else ''
-        heading += 'W' if 180.5 < compass < 359.5 else ''
+        heading = 'N' if abs(t.rotation.yaw) < 89.5 else ''
+        heading += 'S' if abs(t.rotation.yaw) > 90.5 else ''
+        heading += 'E' if 179.5 > t.rotation.yaw > 0.5 else ''
+        heading += 'W' if -0.5 > t.rotation.yaw > -179.5 else ''
         colhist = world.collision_sensor.get_collision_history()
-        collision = [colhist[x + self.frame - 200] for x in range(0, 200)]
+        collision = [colhist[x + self.frame_number - 200] for x in range(0, 200)]
         max_col = max(1.0, max(collision))
         collision = [x / max_col for x in collision]
-        vehicles = world.world.get_actors().filter('vehicle.*')
+        vehicles = world.world.get_actors().filter('vehicle.tesla.model3')
+        # vehicles = world.world.get_actors().filter('vehicle.*')
         self._info_text = [
             'Server:  % 16.0f FPS' % self.server_fps,
             'Client:  % 16.0f FPS' % clock.get_fps(),
             '',
             'Vehicle: % 20s' % get_actor_display_name(world.player, truncate=20),
-            'Map:     % 20s' % world.map.name.split('/')[-1],
+            'Map:     % 20s' % world.map.name,
             'Simulation time: % 12s' % datetime.timedelta(seconds=int(self.simulation_time)),
             '',
-            'Speed:   % 15.0f km/h' % (3.6 * math.sqrt(v.x**2 + v.y**2 + v.z**2)),
-            u'Compass:% 17.0f\N{DEGREE SIGN} % 2s' % (compass, heading),
-            'Accelero: (%5.1f,%5.1f,%5.1f)' % (world.imu_sensor.accelerometer),
-            'Gyroscop: (%5.1f,%5.1f,%5.1f)' % (world.imu_sensor.gyroscope),
+            'Speed:   % 15.0f km/h' % (3.6 * math.sqrt(v.x ** 2 + v.y ** 2 + v.z ** 2)),
+            u'Heading:% 16.0f\N{DEGREE SIGN} % 2s' % (t.rotation.yaw, heading),
             'Location:% 20s' % ('(% 5.1f, % 5.1f)' % (t.location.x, t.location.y)),
             'GNSS:% 24s' % ('(% 2.6f, % 3.6f)' % (world.gnss_sensor.lat, world.gnss_sensor.lon)),
             'Height:  % 18.0f m' % t.location.z,
@@ -570,9 +461,10 @@ class HUD(object):
             'Number of vehicles: % 8d' % len(vehicles)]
         if len(vehicles) > 1:
             self._info_text += ['Nearby vehicles:']
-            distance = lambda l: math.sqrt((l.x - t.location.x)**2 + (l.y - t.location.y)**2 + (l.z - t.location.z)**2)
+            distance = lambda l: math.sqrt(
+                (l.x - t.location.x) ** 2 + (l.y - t.location.y) ** 2 + (l.z - t.location.z) ** 2)
             vehicles = [(distance(x.get_location()), x) for x in vehicles if x.id != world.player.id]
-            for d, vehicle in sorted(vehicles, key=lambda vehicles: vehicles[0]):
+            for d, vehicle in sorted(vehicles):
                 if d > 200.0:
                     break
                 vehicle_type = get_actor_display_name(vehicle, truncate=22)
@@ -623,7 +515,7 @@ class HUD(object):
                     display.blit(surface, (8, v_offset))
                 v_offset += 18
         self._notifications.render(display)
-        # self.help.render(display)
+        self.help.render(display)
 
 
 # ==============================================================================
@@ -661,19 +553,17 @@ class FadingText(object):
 
 
 class HelpText(object):
-    """Helper class to handle text output using pygame"""
     def __init__(self, font, width, height):
         lines = __doc__.split('\n')
         self.font = font
-        self.line_space = 18
-        self.dim = (780, len(lines) * self.line_space + 12)
+        self.dim = (680, len(lines) * 22 + 12)
         self.pos = (0.5 * width - 0.5 * self.dim[0], 0.5 * height - 0.5 * self.dim[1])
         self.seconds_left = 0
         self.surface = pygame.Surface(self.dim)
         self.surface.fill((0, 0, 0, 0))
         for n, line in enumerate(lines):
             text_texture = self.font.render(line, True, (255, 255, 255))
-            self.surface.blit(text_texture, (22, n * self.line_space))
+            self.surface.blit(text_texture, (22, n * 22))
             self._render = False
         self.surface.set_alpha(220)
 
@@ -718,8 +608,8 @@ class CollisionSensor(object):
         actor_type = get_actor_display_name(event.other_actor)
         self.hud.notification('Collision with %r' % actor_type)
         impulse = event.normal_impulse
-        intensity = math.sqrt(impulse.x**2 + impulse.y**2 + impulse.z**2)
-        self.history.append((event.frame, intensity))
+        intensity = math.sqrt(impulse.x ** 2 + impulse.y ** 2 + impulse.z ** 2)
+        self.history.append((event.frame_number, intensity))
         if len(self.history) > 4000:
             self.history.pop(0)
 
@@ -753,7 +643,7 @@ class LaneInvasionSensor(object):
 
 
 # ==============================================================================
-# -- GnssSensor ----------------------------------------------------------------
+# -- GnssSensor --------------------------------------------------------
 # ==============================================================================
 
 
@@ -781,146 +671,30 @@ class GnssSensor(object):
 
 
 # ==============================================================================
-# -- IMUSensor -----------------------------------------------------------------
-# ==============================================================================
-
-
-class IMUSensor(object):
-    def __init__(self, parent_actor):
-        self.sensor = None
-        self._parent = parent_actor
-        self.accelerometer = (0.0, 0.0, 0.0)
-        self.gyroscope = (0.0, 0.0, 0.0)
-        self.compass = 0.0
-        world = self._parent.get_world()
-        bp = world.get_blueprint_library().find('sensor.other.imu')
-        self.sensor = world.spawn_actor(
-            bp, carla.Transform(), attach_to=self._parent)
-        # We need to pass the lambda a weak reference to self to avoid circular
-        # reference.
-        weak_self = weakref.ref(self)
-        self.sensor.listen(
-            lambda sensor_data: IMUSensor._IMU_callback(weak_self, sensor_data))
-
-    @staticmethod
-    def _IMU_callback(weak_self, sensor_data):
-        self = weak_self()
-        if not self:
-            return
-        limits = (-99.9, 99.9)
-        self.accelerometer = (
-            max(limits[0], min(limits[1], sensor_data.accelerometer.x)),
-            max(limits[0], min(limits[1], sensor_data.accelerometer.y)),
-            max(limits[0], min(limits[1], sensor_data.accelerometer.z)))
-        self.gyroscope = (
-            max(limits[0], min(limits[1], math.degrees(sensor_data.gyroscope.x))),
-            max(limits[0], min(limits[1], math.degrees(sensor_data.gyroscope.y))),
-            max(limits[0], min(limits[1], math.degrees(sensor_data.gyroscope.z))))
-        self.compass = math.degrees(sensor_data.compass)
-
-
-# ==============================================================================
-# -- RadarSensor ---------------------------------------------------------------
-# ==============================================================================
-
-
-class RadarSensor(object):
-    def __init__(self, parent_actor):
-        self.sensor = None
-        self._parent = parent_actor
-        self.velocity_range = 7.5 # m/s
-        world = self._parent.get_world()
-        self.debug = world.debug
-        bp = world.get_blueprint_library().find('sensor.other.radar')
-        bp.set_attribute('horizontal_fov', str(35))
-        bp.set_attribute('vertical_fov', str(20))
-        self.sensor = world.spawn_actor(
-            bp,
-            carla.Transform(
-                carla.Location(x=2.8, z=1.0),
-                carla.Rotation(pitch=5)),
-            attach_to=self._parent)
-        # We need a weak reference to self to avoid circular reference.
-        weak_self = weakref.ref(self)
-        self.sensor.listen(
-            lambda radar_data: RadarSensor._Radar_callback(weak_self, radar_data))
-
-    @staticmethod
-    def _Radar_callback(weak_self, radar_data):
-        self = weak_self()
-        if not self:
-            return
-        # To get a numpy [[vel, altitude, azimuth, depth],...[,,,]]:
-        # points = np.frombuffer(radar_data.raw_data, dtype=np.dtype('f4'))
-        # points = np.reshape(points, (len(radar_data), 4))
-
-        current_rot = radar_data.transform.rotation
-        for detect in radar_data:
-            azi = math.degrees(detect.azimuth)
-            alt = math.degrees(detect.altitude)
-            # The 0.25 adjusts a bit the distance so the dots can
-            # be properly seen
-            fw_vec = carla.Vector3D(x=detect.depth - 0.25)
-            carla.Transform(
-                carla.Location(),
-                carla.Rotation(
-                    pitch=current_rot.pitch + alt,
-                    yaw=current_rot.yaw + azi,
-                    roll=current_rot.roll)).transform(fw_vec)
-
-            def clamp(min_v, max_v, value):
-                return max(min_v, min(value, max_v))
-
-            norm_velocity = detect.velocity / self.velocity_range # range [-1, 1]
-            r = int(clamp(0.0, 1.0, 1.0 - norm_velocity) * 255.0)
-            g = int(clamp(0.0, 1.0, 1.0 - abs(norm_velocity)) * 255.0)
-            b = int(abs(clamp(- 1.0, 0.0, - 1.0 - norm_velocity)) * 255.0)
-            self.debug.draw_point(
-                radar_data.transform.location + fw_vec,
-                size=0.075,
-                life_time=0.06,
-                persistent_lines=False,
-                color=carla.Color(r, g, b))
-
-# ==============================================================================
 # -- CameraManager -------------------------------------------------------------
 # ==============================================================================
 
 
 class CameraManager(object):
-    def __init__(self, parent_actor, hud, gamma_correction):
+    def __init__(self, parent_actor, hud):
         self.sensor = None
         self.surface = None
         self._parent = parent_actor
         self.hud = hud
         self.recording = False
-        self.folder_path = None
-        self.recording_counter = 0
-        bound_y = 0.5 + self._parent.bounding_box.extent.y
-        Attachment = carla.AttachmentType
         self._camera_transforms = [
-            (carla.Transform(carla.Location(x=-5.5, z=2.5), carla.Rotation(pitch=8.0)), Attachment.Rigid),
-            (carla.Transform(carla.Location(x=-4, z=2.5), carla.Rotation(pitch=3.0, yaw=-90)), Attachment.Rigid),
-            (carla.Transform(carla.Location(x=1.6, z=1.7)), Attachment.Rigid),
-            (carla.Transform(carla.Location(x=5.5, y=1.5, z=1.5)), Attachment.Rigid),
-            (carla.Transform(carla.Location(x=-8.0, z=6.0), carla.Rotation(pitch=6.0)), Attachment.Rigid),
-            (carla.Transform(carla.Location(x=-1, y=-bound_y, z=0.5)), Attachment.Rigid)]
+            carla.Transform(carla.Location(x=-5.5, z=2.8), carla.Rotation(pitch=-15)),
+            carla.Transform(carla.Location(x=1.6, z=1.7))]
         self.transform_index = 1
         self.sensors = [
-            ['sensor.camera.rgb', cc.Raw, 'Camera RGB', {}],
-            ['sensor.camera.depth', cc.Raw, 'Camera Depth (Raw)', {}],
-            ['sensor.camera.depth', cc.Depth, 'Camera Depth (Gray Scale)', {}],
-            ['sensor.camera.depth', cc.LogarithmicDepth, 'Camera Depth (Logarithmic Gray Scale)', {}],
-            ['sensor.camera.semantic_segmentation', cc.Raw, 'Camera Semantic Segmentation (Raw)', {}],
+            ['sensor.camera.rgb', cc.Raw, 'Camera RGB'],
+            ['sensor.camera.depth', cc.Raw, 'Camera Depth (Raw)'],
+            ['sensor.camera.depth', cc.Depth, 'Camera Depth (Gray Scale)'],
+            ['sensor.camera.depth', cc.LogarithmicDepth, 'Camera Depth (Logarithmic Gray Scale)'],
+            ['sensor.camera.semantic_segmentation', cc.Raw, 'Camera Semantic Segmentation (Raw)'],
             ['sensor.camera.semantic_segmentation', cc.CityScapesPalette,
-                'Camera Semantic Segmentation (CityScapes Palette)', {}],
-            ['sensor.lidar.ray_cast', None, 'Lidar (Ray-Cast)', {'range': '50'}],
-            ['sensor.camera.dvs', cc.Raw, 'Dynamic Vision Sensor', {}],
-            ['sensor.camera.rgb', cc.Raw, 'Camera RGB Distorted',
-                {'lens_circle_multiplier': '3.0',
-                'lens_circle_falloff': '3.0',
-                'chromatic_aberration_intensity': '0.5',
-                'chromatic_aberration_offset': '0'}]]
+             'Camera Semantic Segmentation (CityScapes Palette)'],
+            ['sensor.lidar.ray_cast', None, 'Lidar (Ray-Cast)']]
         world = self._parent.get_world()
         bp_library = world.get_blueprint_library()
         for item in self.sensors:
@@ -928,38 +702,27 @@ class CameraManager(object):
             if item[0].startswith('sensor.camera'):
                 bp.set_attribute('image_size_x', str(hud.dim[0]))
                 bp.set_attribute('image_size_y', str(hud.dim[1]))
-                if bp.has_attribute('gamma'):
-                    bp.set_attribute('gamma', str(gamma_correction))
-                for attr_name, attr_value in item[3].items():
-                    bp.set_attribute(attr_name, attr_value)
             elif item[0].startswith('sensor.lidar'):
-                self.lidar_range = 50
-
-                for attr_name, attr_value in item[3].items():
-                    bp.set_attribute(attr_name, attr_value)
-                    if attr_name == 'range':
-                        self.lidar_range = float(attr_value)
-
+                bp.set_attribute('range', '5000')
             item.append(bp)
         self.index = None
 
     def toggle_camera(self):
         self.transform_index = (self.transform_index + 1) % len(self._camera_transforms)
-        self.set_sensor(self.index, notify=False, force_respawn=True)
+        self.sensor.set_transform(self._camera_transforms[self.transform_index])
 
-    def set_sensor(self, index, notify=True, force_respawn=False):
+    def set_sensor(self, index, notify=True):
         index = index % len(self.sensors)
-        needs_respawn = True if self.index is None else \
-            (force_respawn or (self.sensors[index][2] != self.sensors[self.index][2]))
+        needs_respawn = True if self.index is None \
+            else self.sensors[index][0] != self.sensors[self.index][0]
         if needs_respawn:
             if self.sensor is not None:
                 self.sensor.destroy()
                 self.surface = None
             self.sensor = self._parent.get_world().spawn_actor(
                 self.sensors[index][-1],
-                self._camera_transforms[self.transform_index][0],
-                attach_to=self._parent,
-                attachment_type=self._camera_transforms[self.transform_index][1])
+                self._camera_transforms[self.transform_index],
+                attach_to=self._parent)
             # We need to pass the lambda a weak reference to self to avoid
             # circular reference.
             weak_self = weakref.ref(self)
@@ -986,27 +749,19 @@ class CameraManager(object):
             return
         if self.sensors[self.index][0].startswith('sensor.lidar'):
             points = np.frombuffer(image.raw_data, dtype=np.dtype('f4'))
-            points = np.reshape(points, (int(points.shape[0] / 4), 4))
+            points = np.reshape(points, (int(points.shape[0] / 3), 3))
             lidar_data = np.array(points[:, :2])
-            lidar_data *= min(self.hud.dim) / (2.0 * self.lidar_range)
+            lidar_data *= min(self.hud.dim) / 100.0
             lidar_data += (0.5 * self.hud.dim[0], 0.5 * self.hud.dim[1])
             lidar_data = np.fabs(lidar_data)  # pylint: disable=E1111
             lidar_data = lidar_data.astype(np.int32)
             lidar_data = np.reshape(lidar_data, (-1, 2))
             lidar_img_size = (self.hud.dim[0], self.hud.dim[1], 3)
-            lidar_img = np.zeros((lidar_img_size), dtype=np.uint8)
+            lidar_img = np.zeros(lidar_img_size)
             lidar_img[tuple(lidar_data.T)] = (255, 255, 255)
             self.surface = pygame.surfarray.make_surface(lidar_img)
-        elif self.sensors[self.index][0].startswith('sensor.camera.dvs'):
-            # Example of converting the raw_data from a carla.DVSEventArray
-            # sensor into a NumPy array and using it as an image
-            dvs_events = np.frombuffer(image.raw_data, dtype=np.dtype([
-                ('x', np.uint16), ('y', np.uint16), ('t', np.int64), ('pol', np.bool)]))
-            dvs_img = np.zeros((image.height, image.width, 3), dtype=np.uint8)
-            # Blue is positive, red is negative
-            dvs_img[dvs_events[:]['y'], dvs_events[:]['x'], dvs_events[:]['pol'] * 2] = 255
-            self.surface = pygame.surfarray.make_surface(dvs_img.swapaxes(0, 1))
         else:
+            # Original code Don't touch
             image.convert(self.sensors[self.index][1])
             array = np.frombuffer(image.raw_data, dtype=np.dtype("uint8"))
             array = np.reshape(array, (image.height, image.width, 4))
@@ -1014,55 +769,17 @@ class CameraManager(object):
             array = array[:, :, ::-1]
             self.surface = pygame.surfarray.make_surface(array.swapaxes(0, 1))
 
+            #################################################
+            #################################################
+            # it's my code
+            global Camera_image
+            Camera_image = array.copy()
+            #################################################
+            #################################################
+
         if self.recording:
-            current_time = time.localtime()
-            current_date = time.strftime("%Y-%m-%d", current_time)
-            current_path = '_out/{}'.format(current_date)
+            image.save_to_disk('_out/%08d' % image.frame_number)
 
-            if self.folder_path is None:
-                if not os.path.exists(current_path):
-                    self.recording_counter += 1
-                    self.folder_path = '_out/{}/{}'.format(current_date, self.recording_counter)
-                    try:
-                        os.makedirs(self.folder_path)
-                    except OSError:
-                        pass
-
-                else:
-                    if self.recording_counter == self.count_sub_folders(current_path):
-                        self.recording_counter += 1
-                        self.folder_path = '_out/{}/{}'.format(current_date, self.recording_counter)
-                        try:
-                            os.makedirs(self.folder_path)
-                        except OSError:
-                            pass
-
-                    elif self.recording_counter != self.count_sub_folders(current_path):
-                        self.recording_counter = self.count_sub_folders(current_path) + 1
-                        self.folder_path = '_out/{}/{}'.format(current_date, self.recording_counter)
-                        try:
-                            os.makedirs(self.folder_path)
-                        except OSError:
-                            pass
-
-            file_name = time.strftime('%H-%M-%S', current_time)
-            image.save_to_disk('{}/{}.png'.format(self.folder_path, file_name))
-
-        else:
-            self.folder_path = None
-            # self.recording_counter += 1
-
-    def count_sub_folders(self, directory):
-        sub_items = os.listdir(directory)
-        folder_count = sum(os.path.isdir(os.path.join(directory, item)) for item in sub_items)
-
-        return folder_count
-
-    # def count_sub_folders(self, directory):
-    #     sub_items = os.listdir(directory)
-    #     sub_folders = [item for item in sub_items if os.path.isdir(os.path.join(directory, item))]
-    #     folder_count = len(sub_folders)
-    #     return folder_count
 
 # ==============================================================================
 # -- game_loop() ---------------------------------------------------------------
@@ -1083,7 +800,11 @@ def game_loop(args):
             pygame.HWSURFACE | pygame.DOUBLEBUF)
 
         hud = HUD(args.width, args.height)
-        world = World(client.load_world('Town05'), hud, args)
+
+        # Changing The Map
+        world = World(client.load_world('Town05'), hud, args.filter,
+                      args.rolename)  # Town04 ,Town06 is highway | Town07 is country
+        # world = World(client.get_world(), hud, args.filter, args.rolename)
         controller = KeyboardControl(world, args.autopilot)
 
         clock = pygame.time.Clock()
@@ -1094,6 +815,315 @@ def game_loop(args):
             world.tick(clock)
             world.render(display)
             pygame.display.flip()
+
+
+
+            #################################################
+            # it's my code
+            pt1_sum_ri = (0, 0)
+            pt2_sum_ri = (0, 0)
+            pt1_avg_ri = (0, 0)
+            count_posi_num_ri = 0
+
+            pt1_sum_le = (0, 0)
+            pt2_sum_le = (0, 0)
+            pt1_avg_le = (0, 0)
+
+            count_posi_num_le = 0
+
+
+            global Camera_image
+            RGB_Camera_im = cv2.cvtColor(Camera_image, cv2.COLOR_BGR2RGB)
+            #################################################
+            # Now image resolution is 720x1280x3
+            size_im = cv2.resize(RGB_Camera_im, dsize=(640, 480))  # VGA resolution
+            # size_im = cv2.resize(test_im, dsize=(800, 600))  # SVGA resolution
+            # size_im = cv2.resize(test_im, dsize=(1028, 720))  # HD resolution
+            # size_im = cv2.resize(test_im, dsize=(1920, 1080))  # Full-HD resolution
+            # cv2.imshow("size_im", size_im)
+            #################################################
+
+            #################################################
+            # ROI Coordinates Set-up
+            # roi = size_im[320:480, 213:426]  # [380:430, 330:670]   [y:y+b, x:x+a]
+            # roi_im = cv2.resize(roi, (213, 160))  # x,y
+            # cv2.imshow("roi_im", roi_im)
+            roi = size_im[240:480, 108:532]  # [380:430, 330:670]   [y:y+b, x:x+a]
+            roi_im = cv2.resize(roi, (424, 240))  # (a of x, b of y)
+            # cv2.imshow("roi_im", roi_im)
+            #################################################
+
+            #################################################
+            # Gaussian Blur Filter
+            Blur_im = cv2.bilateralFilter(roi_im, d=-1, sigmaColor=5, sigmaSpace=5)
+            #################################################
+
+            #################################################
+            # Canny edge detector
+            edges = cv2.Canny(Blur_im, 50, 100)
+            # cv2.imshow("edges", edges)
+            #################################################
+
+            #################################################
+            # Hough Transformation
+            # lines = cv2.HoughLinesP(edges, rho=1, theta=np.pi / 180.0, threshold=80, minLineLength=30, maxLineGap=50)
+            # rho, theta는 1씩 변경하면서 검출하겠다는 의미, np.pi/180 라디안 = 1'
+            # threshold 숫자가 작으면 정밀도↓ 직선검출↑, 크면 정밀도↑ 직선검출↓
+            # min_line_len 선분의 최소길이
+            # max_line,gap 선분 사이의 최대 거리
+            lines = cv2.HoughLinesP(edges, rho=1, theta=np.pi / 180.0, threshold=25, minLineLength=10, maxLineGap=20)
+
+
+            #N = lines.shape[0]
+
+            if lines is None: #in case HoughLinesP fails to return a set of lines
+                    #make sure that this is the right shape [[ ]] and ***not*** []
+                    lines = [[0,0,0,0]]
+            else:
+
+                #for line in range(N):
+                for line in lines:
+
+                    x1, y1, x2, y2 = line[0]
+
+                    #x1 = lines[line][0][0]
+                    #y1 = lines[line][0][1]
+                    #x2 = lines[line][0][2]
+                    #y2 = lines[line][0][3]
+
+                    if x2 == x1:
+                        a = 1
+                    else:
+                        a = x2 - x1
+
+                    b = y2 - y1
+
+                    radi = b / a  # 라디안 계산
+                    # print('radi=', radi)
+
+                    theta_atan = math.atan(radi) * 180.0 / math.pi
+                    # print('theta_atan=', theta_atan)
+
+                    pt1_ri = (x1 + 108, y1 + 240)
+                    pt2_ri = (x2 + 108, y2 + 240)
+                    pt1_le = (x1 + 108, y1 + 240)
+                    pt2_le = (x2 + 108, y2 + 240)
+
+                    if theta_atan > 20.0 and theta_atan < 90.0:
+                        # cv2.line(size_im, (x1+108, y1+240), (x2+108, y2+240), (0, 255, 0), 2)
+                        # print('live_atan=', theta_atan)
+
+                        count_posi_num_ri += 1
+
+                        pt1_sum_ri = sumMatrix(pt1_ri, pt1_sum_ri)
+                        # pt1_sum = pt1 + pt1_sum
+                        # print('pt1_sum=', pt1_sum)
+
+                        pt2_sum_ri = sumMatrix(pt2_ri, pt2_sum_ri)
+                        # pt2_sum = pt2 + pt2_sum
+                        # print('pt2_sum=', pt2_sum)
+
+                    if theta_atan < -20.0 and theta_atan > -90.0:
+                        # cv2.line(size_im, (x1+108, y1+240), (x2+108, y2+240), (0, 0, 255), 2)
+                        # print('live_atan=', theta_atan)
+
+                        count_posi_num_le += 1
+
+                        pt1_sum_le = sumMatrix(pt1_le, pt1_sum_le)
+                        # pt1_sum = pt1 + pt1_sum
+                        # print('pt1_sum=', pt1_sum)
+
+                        pt2_sum_le = sumMatrix(pt2_le, pt2_sum_le)
+                        # pt2_sum = pt2 + pt2_sum
+                        # print('pt2_sum=', pt2_sum)
+
+                # print('pt1_sum=', pt1_sum_ri)
+                # print('pt2_sum=', pt2_sum_ri)
+                # print('count_posi_num_ri=', count_posi_num_ri)
+                # print('count_posi_num_le=', count_posi_num_le)
+
+                # testartu = pt1_sum / np.array(count_posi_num)
+                # print(tuple(testartu))
+
+                pt1_avg_ri = pt1_sum_ri // np.array(count_posi_num_ri)
+                pt2_avg_ri = pt2_sum_ri // np.array(count_posi_num_ri)
+                pt1_avg_le = pt1_sum_le // np.array(count_posi_num_le)
+                pt2_avg_le = pt2_sum_le // np.array(count_posi_num_le)
+
+                # print('pt1_avg_ri=', pt1_avg_ri)
+                # print('pt2_avg_ri=', pt2_avg_ri)
+                # print('pt1_avg_le=', pt1_avg_le)
+                # print('pt2_avg_le=', pt2_avg_le)
+
+                # print('pt1_avg=', pt1_avg_ri)
+                # print('pt2_avg=', pt2_avg_ri)
+                # print('np_count_posi_num=', np.array(count_posi_num))
+
+                # line1_ri = tuple(pt1_avg_ri)
+                # line2_ri = tuple(pt2_avg_ri)
+                # line1_le = tuple(pt1_avg_le)
+                # line2_le = tuple(pt2_avg_le)
+                # print('line1=', line1_ri)
+                # print('int2=', int2)
+
+                #################################################
+                # 차석인식의 흔들림 보정
+                # right-----------------------------------------------------------
+                x1_avg_ri, y1_avg_ri = pt1_avg_ri
+                # print('x1_avg_ri=', x1_avg_ri)
+                # print('y1_avg_ri=', y1_avg_ri)
+                x2_avg_ri, y2_avg_ri = pt2_avg_ri
+                # print('x2_avg_ri=', x2_avg_ri)
+                # print('y2_avg_ri=', y2_avg_ri)
+
+                a_avg_ri = ((y2_avg_ri - y1_avg_ri) / (x2_avg_ri - x1_avg_ri))
+                b_avg_ri = (y2_avg_ri - (a_avg_ri * x2_avg_ri))
+                # print('a_avg_ri=', a_avg_ri)
+                # print('b_avg_ri=', b_avg_ri)
+
+                pt2_y2_fi_ri = 480
+
+                # pt2_x2_fi_ri = ((pt2_y2_fi_ri - b_avg_ri) // a_avg_ri)
+
+                if a_avg_ri > 0:
+                    pt2_x2_fi_ri = int((pt2_y2_fi_ri - b_avg_ri) // a_avg_ri)
+                else:
+                    pt2_x2_fi_ri = 0
+
+                # print('pt2_x2_fi_ri=', pt2_x2_fi_ri)
+                pt2_fi_ri = (pt2_x2_fi_ri, pt2_y2_fi_ri)
+                # pt2_fi_ri = (int(pt2_x2_fi_ri), pt2_y2_fi_ri)
+                # print('pt2_fi_ri=', pt2_fi_ri)
+
+                # left------------------------------------------------------------
+                x1_avg_le, y1_avg_le = pt1_avg_le
+                x2_avg_le, y2_avg_le = pt2_avg_le
+                # print('x1_avg_le=', x1_avg_le)
+                # print('y1_avg_le=', y1_avg_le)
+                # print('x2_avg_le=', x2_avg_le)
+                # print('y2_avg_le=', y2_avg_le)
+
+                a_avg_le = ((y2_avg_le - y1_avg_le) / (x2_avg_le - x1_avg_le))
+                b_avg_le = (y2_avg_le - (a_avg_le * x2_avg_le))
+                # print('a_avg_le=', a_avg_le)
+                # print('b_avg_le=', b_avg_le)
+
+                pt1_y1_fi_le = 480
+                if a_avg_le < 0:
+                    pt1_x1_fi_le = int((pt1_y1_fi_le - b_avg_le) // a_avg_le)
+                else:
+                    pt1_x1_fi_le = 0
+                # pt1_x1_fi_le = ((pt1_y1_fi_le - b_avg_le) // a_avg_le)
+                # print('pt1_x1_fi_le=', pt1_x1_fi_le)
+
+                pt1_fi_le = (pt1_x1_fi_le, pt1_y1_fi_le)
+                # print('pt1_fi_le=', pt1_fi_le)
+
+                # print('pt1_avg_ri=', pt1_sum_ri)
+                # print('pt2_fi_ri=', pt2_fi_ri)
+                # print('pt1_fi_le=', pt1_fi_le)
+                # print('pt2_avg_le=', pt2_sum_le)
+                #################################################
+
+                #################################################
+                # lane painting
+                # right-----------------------------------------------------------
+                # cv2.line(size_im, tuple(pt1_avg_ri), tuple(pt2_avg_ri), (0, 255, 0), 2) # right lane
+                cv2.line(size_im, tuple(pt1_avg_ri), tuple(pt2_fi_ri), (0, 255, 0), 2)  # right lane
+                # left-----------------------------------------------------------
+                # cv2.line(size_im, tuple(pt1_avg_le), tuple(pt2_avg_le), (0, 255, 0), 2) # left lane
+                cv2.line(size_im, tuple(pt1_fi_le), tuple(pt2_avg_le), (0, 255, 0), 2)  # left lane
+                # center-----------------------------------------------------------
+                cv2.line(size_im, (320, 480), (320, 360), (0, 228, 255), 1)  # middle lane
+                #################################################
+
+                #################################################
+                # possible lane
+                # FCP = np.array([pt1_avg_ri, pt2_avg_ri, pt1_avg_le, pt2_avg_le])
+                # cv2.fillConvexPoly(size_im, FCP, color=(255, 242, 213)) # BGR
+                #################################################
+                FCP_img = np.zeros(shape=(480, 640, 3), dtype=np.uint8) + 0
+                # FCP = np.array([pt1_avg_ri, pt2_avg_ri, pt1_avg_le, pt2_avg_le])
+                # FCP = np.array([(100,100), (100,200), (200,200), (200,100)])
+                FCP = np.array([pt2_avg_le, pt1_fi_le, pt2_fi_ri, pt1_avg_ri])
+                cv2.fillConvexPoly(FCP_img, FCP, color=(255, 242, 213))  # BGR
+                alpha = 0.9
+                size_im = cv2.addWeighted(size_im, alpha, FCP_img, 1 - alpha, 0)
+
+                # alpha = 0.4
+                # size_im = cv2.addWeighted(size_im, alpha, FCP, 1 - alpha, 0)
+                #################################################
+
+                #################################################
+                # lane center 및 steering 계산 (320, 360)
+                lane_center_y_ri = 360
+                if a_avg_ri > 0:
+                    lane_center_x_ri = int((lane_center_y_ri - b_avg_ri) // a_avg_ri)
+                else:
+                    lane_center_x_ri = 0
+
+                lane_center_y_le = 360
+                if a_avg_le < 0:
+                    lane_center_x_le = int((lane_center_y_le - b_avg_le) // a_avg_le)
+                else:
+                    lane_center_x_le = 0
+
+                # caenter left lane (255, 90, 185)
+                cv2.line(size_im, (lane_center_x_le, lane_center_y_le - 10), (lane_center_x_le, lane_center_y_le + 10),
+                         (0, 228, 255), 1)
+                # caenter right lane
+                cv2.line(size_im, (lane_center_x_ri, lane_center_y_ri - 10), (lane_center_x_ri, lane_center_y_ri + 10),
+                         (0, 228, 255), 1)
+                # caenter middle lane
+                lane_center_x = ((lane_center_x_ri - lane_center_x_le) // 2) + lane_center_x_le
+                cv2.line(size_im, (lane_center_x, lane_center_y_ri - 10), (lane_center_x, lane_center_y_le + 10),
+                         (0, 228, 255), 1)
+
+                # print('lane_center_x=', lane_center_x)
+
+                text_left = 'Turn Left'
+                text_right = 'Turn Right'
+                text_center = 'Center'
+                text_non = ''
+                org = (320, 440)
+                font = cv2.FONT_HERSHEY_SIMPLEX
+
+                if 0 < lane_center_x <= 318:
+                    cv2.putText(size_im, text_left, org, font, 0.7, (0, 0, 255), 2)
+                elif 318 < lane_center_x < 322:
+                    # elif lane_center_x > 318 and lane_center_x < 322 :
+                    cv2.putText(size_im, text_center, org, font, 0.7, (0, 0, 255), 2)
+                elif lane_center_x >= 322:
+                    cv2.putText(size_im, text_right, org, font, 0.7, (0, 0, 255), 2)
+                elif lane_center_x == 0:
+                    cv2.putText(size_im, text_non, org, font, 0.7, (0, 0, 255), 2)
+                #################################################
+
+                global test_con
+                test_con = 1
+                # print('test_con=', test_con)
+
+                # 변수 초기화
+                count_posi_num_ri = 0
+
+                pt1_sum_ri = (0, 0)
+                pt2_sum_ri = (0, 0)
+                pt1_avg_ri = (0, 0)
+                pt2_avg_ri = (0, 0)
+
+                count_posi_num_le = 0
+
+                pt1_sum_le = (0, 0)
+                pt2_sum_le = (0, 0)
+                pt1_avg_le = (0, 0)
+                pt2_avg_le = (0, 0)
+
+                cv2.imshow('frame_size_im', size_im)
+                cv2.waitKey(1)
+                # cv2.imshow("test_im", test_im) # original size image
+                # cv2.waitKey(1)
+
+
 
     finally:
 
@@ -1137,23 +1167,20 @@ def main():
     argparser.add_argument(
         '--res',
         metavar='WIDTHxHEIGHT',
-        default='1280x720',
-        help='window resolution (default: 1280x720)')
+        default='640x480',  # '1280x720'
+        help='window resolution (default: 640x480)')
     argparser.add_argument(
         '--filter',
         metavar='PATTERN',
-        default='vehicle.*',
-        help='actor filter (default: "vehicle.*")')
+        default='vehicle.tesla.model3',
+        help='actor filter (default: "vehicle.tesla.model3")')
+    # default='vehicle.*',
+    # help='actor filter (default: "vehicle.*")')
     argparser.add_argument(
         '--rolename',
         metavar='NAME',
         default='hero',
         help='actor role name (default: "hero")')
-    argparser.add_argument(
-        '--gamma',
-        default=2.2,
-        type=float,
-        help='Gamma correction of the camera (default: 2.2)')
     args = argparser.parse_args()
 
     args.width, args.height = [int(x) for x in args.res.split('x')]
@@ -1174,5 +1201,4 @@ def main():
 
 
 if __name__ == '__main__':
-
     main()

@@ -10,6 +10,7 @@ import glob
 import os
 import sys
 import time
+import cv2
 
 try:
     sys.path.append(glob.glob(os.path.dirname(os.path.dirname(os.path.abspath(__file__))) + '/carla/dist/carla-*%d.%d-%s.egg' % (
@@ -92,6 +93,8 @@ except ImportError:
 # ==============================================================================
 # -- Global functions ----------------------------------------------------------
 # ==============================================================================
+
+Camera_image = np.zeros(shape=(480, 640, 3), dtype=np.uint8)
 
 
 def find_weather_presets():
@@ -900,7 +903,7 @@ class CameraManager(object):
         Attachment = carla.AttachmentType
         self._camera_transforms = [
             (carla.Transform(carla.Location(x=-5.5, z=2.5), carla.Rotation(pitch=8.0)), Attachment.Rigid),
-            (carla.Transform(carla.Location(x=-4, z=2.5), carla.Rotation(pitch=3.0, yaw=-90)), Attachment.Rigid),
+            (carla.Transform(carla.Location(x=-4, z=2.5), carla.Rotation(pitch=1.5, yaw=-90)), Attachment.Rigid),
             (carla.Transform(carla.Location(x=1.6, z=1.7)), Attachment.Rigid),
             (carla.Transform(carla.Location(x=5.5, y=1.5, z=1.5)), Attachment.Rigid),
             (carla.Transform(carla.Location(x=-8.0, z=6.0), carla.Rotation(pitch=6.0)), Attachment.Rigid),
@@ -1014,6 +1017,9 @@ class CameraManager(object):
             array = array[:, :, ::-1]
             self.surface = pygame.surfarray.make_surface(array.swapaxes(0, 1))
 
+            global Camera_image
+            Camera_image = array.copy()
+
         if self.recording:
             current_time = time.localtime()
             current_date = time.strftime("%Y-%m-%d", current_time)
@@ -1064,6 +1070,162 @@ class CameraManager(object):
     #     folder_count = len(sub_folders)
     #     return folder_count
 
+
+
+# ==============================================================================
+# -- LaneDetector -------------------------------------------------------------
+# ==============================================================================
+
+class LaneDetector:
+    def __init__(self, camera_image):
+        self.camera_image = cv2.resize(camera_image, (640, 480))
+        # self.camera_image = camera_image
+        # self.new_height, self.new_width = self.camera_image.shape[:2]
+
+    def make_coordinates(self, image, line_parameters):
+        slope, intercept = line_parameters
+        if slope != 0:
+            y1 = image.shape[0]
+            y2 = int(y1 * (3 / 5))
+            x1 = int((y1 - intercept) / slope)
+            x2 = int((y2 - intercept) / slope)
+            return np.array([x1, y1, x2, y2])
+        else:
+            return None
+
+    def average_slope_intercept(self, image, lines):
+        if lines is not None:
+            left_fit, right_fit = [], []
+            for line in lines:
+                x1, y1, x2, y2 = line.reshape(4)
+                parameters = np.polyfit((x1, x2), (y1, y2), 1)
+                slope = parameters[0]
+                intercept = parameters[1]
+
+                if slope < 0:
+                    left_fit.append((slope, intercept))
+                else:
+                    right_fit.append((slope, intercept))
+
+            if left_fit and right_fit:
+                left_fit_average = np.average(left_fit, axis=0)
+                right_fit_average = np.average(right_fit, axis=0)
+                left_line = self.make_coordinates(image, left_fit_average)
+                right_line = self.make_coordinates(image, right_fit_average)
+                return np.array([left_line, right_line])
+            else:
+                return None
+
+        else:
+            return None
+
+
+    def canny(self, image):
+        gray_image = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
+        blurred_image = cv2.GaussianBlur(gray_image, (5, 5), 0)
+        canny_image = cv2.Canny(blurred_image, 50, 150)
+        return canny_image
+
+
+    def region_of_interest(self, image):
+        # specify the region we are interested in -> triangular
+        height = image.shape[0]  # row value
+        width = image.shape[1]  # column value
+
+        polygons = np.array([
+            [(int(0.23 * width), int(height)), (int(0.7 * width), int(height)),
+             (int(0.61 * width), int(0.75 * height)), (int(0.37 * width), int(0.75 * height))]
+        ])
+
+        mask = np.zeros_like(image)
+        cv2.fillPoly(mask, polygons, 255)
+        masked_image = cv2.bitwise_and(image, mask)
+
+        return masked_image
+
+    # check roi image
+    def roi_image(self, image):
+        height = image.shape[0]
+        width = image.shape[1]
+
+        polygons = np.array([
+            [(int(0.23 * width), int(height)), (int(0.7 * width), int(height)),
+             (int(0.61 * width), int(0.75 * height)), (int(0.37 * width), int(0.75 * height))]
+        ])
+
+        roi_image = cv2.polylines(image, [polygons], True, (0, 0, 255), 10)
+
+        return roi_image
+
+
+    def display_lines(self, image, lines):
+        line_image = np.zeros_like(image)
+        if lines is not None:
+            for x1, y1, x2, y2 in lines:
+                # calibrate not out of image range
+                x1 = min(max(x1, 0), image.shape[1] - 1)
+                y1 = min(max(y1, 0), image.shape[0] - 1)
+                x2 = min(max(x2, 0), image.shape[1] - 1)
+                y2 = min(max(y2, 0), image.shape[0] - 1)
+
+                cv2.line(line_image, (x1, y1), (x2, y2), (255, 0, 0), 10)
+            line_image = cv2.resize(line_image, (image.shape[1], image.shape[0]))
+
+        else:
+            line_image = None
+
+        return line_image
+
+
+    def calculate_angle(self, left_line, right_line):
+        if left_line is not None and right_line is not None:
+            left_slope = (left_line[3] - left_line[1]) / (left_line[2] - left_line[0])
+            right_slope = (right_line[3] - right_line[1]) / (right_line[2] - right_line[0])
+
+            angle_rad = np.arctan(abs((right_slope - left_slope) / (1 + left_slope * right_slope)))
+            angle_deg = np.degrees(angle_rad)
+            return angle_deg
+
+        else:
+            return None
+
+    def run_lane_detection(self):
+        lane_image = np.copy(self.camera_image)
+        canny_image = self.canny(lane_image)
+        cropped_image = self.region_of_interest(canny_image)
+        lines = cv2.HoughLinesP(
+            cropped_image, 1, np.pi / 180, 15, np.array([]), minLineLength=5, maxLineGap=20)
+
+        if lines is not None:
+            averaged_lines = self.average_slope_intercept(lane_image, lines)
+            if averaged_lines is not None:
+                line_image = self.display_lines(lane_image, averaged_lines)
+                combined_image = cv2.addWeighted(lane_image, 0.8, line_image, 1, 1)
+
+                left_line = averaged_lines[0]
+                right_line = averaged_lines[1]
+
+                angle = self.calculate_angle(left_line, right_line)
+
+                if angle is not None:
+                    font = cv2.FONT_HERSHEY_SIMPLEX
+                    cv2.putText(combined_image, 'Angle: {:.2f} degress'.format(angle), (50, 50), font, 1, (255, 255, 255), 2, cv2.LINE_AA)
+
+
+            else:
+                combined_image = lane_image
+
+        else:
+            combined_image = lane_image
+
+
+
+        # cv2.imshow('image', combined_image)
+        cv2.imshow('polylines', self.roi_image(combined_image))
+        # cv2.imshow('edges', canny_image)
+        cv2.waitKey(1)
+
+
 # ==============================================================================
 # -- game_loop() ---------------------------------------------------------------
 # ==============================================================================
@@ -1094,6 +1256,12 @@ def game_loop(args):
             world.tick(clock)
             world.render(display)
             pygame.display.flip()
+
+            global Camera_image
+            lane_detector = LaneDetector(Camera_image)
+            lane_detector.run_lane_detection()
+
+
 
     finally:
 
