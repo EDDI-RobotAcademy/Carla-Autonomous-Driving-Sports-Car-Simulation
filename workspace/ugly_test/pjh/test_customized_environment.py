@@ -273,6 +273,7 @@ class World(object):
         self.camera_manager.set_sensor(cam_index, notify=False)
         actor_type = get_actor_display_name(self.player)
         self.hud.notification(actor_type)
+        print(self.player.bounding_box.location)
 
     def next_weather(self, reverse=False):
         self._weather_index += -1 if reverse else 1
@@ -629,6 +630,7 @@ class HUD(object):
         t = world.player.get_transform()
         v = world.player.get_velocity()
         c = world.player.get_control()
+        bb = world.player.bounding_box
         compass = world.imu_sensor.compass
         heading = 'N' if compass > 270.5 or compass < 89.5 else ''
         heading += 'S' if 90.5 < compass < 269.5 else ''
@@ -644,6 +646,7 @@ class HUD(object):
             'Client:  % 16.0f FPS' % clock.get_fps(),
             '',
             'Vehicle: % 20s' % get_actor_display_name(world.player, truncate=20),
+            'Size: % 20s' % ('(x=%3.2f, y=%3.2f, z=%3.2f)' % (bb.extent.x, bb.extent.y, bb.extent.z)),
             'Map:     % 20s' % world.map.name.split('/')[-1],
             'Simulation time: % 12s' % datetime.timedelta(seconds=int(self.simulation_time)),
             '',
@@ -1068,13 +1071,13 @@ class LidarSensor(object):
         self._parent = parent_actor
         self._hud = hud
         self._event_count = 0
-        self.sensor_transform = carla.Transform(carla.Location(z=2), carla.Rotation(yaw=-90.0))  # Put this sensor on the windshield of the car.
+        self.sensor_transform = carla.Transform(carla.Location(z=3), carla.Rotation(yaw=-90.0))
         world = self._parent.get_world()
         bp = world.get_blueprint_library().find('sensor.lidar.ray_cast')
         bp.set_attribute('channels', '32')
         bp.set_attribute('points_per_second', '90000')
         bp.set_attribute('rotation_frequency', '30')
-        bp.set_attribute('range', '50')
+        bp.set_attribute('range', '15')
         self.sensor = world.spawn_actor(bp, self.sensor_transform, attach_to=self._parent)
         self.sensor.listen(lambda point_cloud: point_cloud.save_to_disk('lidar_output/%.6d.ply' % point_cloud.frame))
 
@@ -1096,11 +1099,12 @@ class CameraManager(object):
         Attachment = carla.AttachmentType
         self._camera_transforms = [
             (carla.Transform(carla.Location(x=-10.5, z=2.5), carla.Rotation(pitch=8.0)), Attachment.Rigid),
+            (carla.Transform(carla.Location(z=3), carla.Rotation(yaw=-90.0)), Attachment.Rigid),
             # (carla.Transform(carla.Location(x=bound_x-0.65, z=0.5)), Attachment.Rigid),
             (carla.Transform(carla.Location(y=-1.3, z=1), carla.Rotation(pitch=15.0, yaw=-90.0)), Attachment.Rigid),
             # # (carla.Transform(carla.Location(x=1.6, z=1.7)), Attachment.Rigid),
             # # (carla.Transform(carla.Location(x=5.5, y=1.5, z=1.5)), Attachment.Rigid),
-            (carla.Transform(carla.Location(x=0.0, z=10.0), carla.Rotation(pitch=-90.0)), Attachment.Rigid),
+            (carla.Transform(carla.Location(x=0.0, z=30.0), carla.Rotation(pitch=-90.0)), Attachment.Rigid),
             (carla.Transform(carla.Location(x=-3, y=-bound_y, z=0.5)), Attachment.Rigid),
             (carla.Transform(carla.Location(x=-3, y=bound_y, z=0.5)), Attachment.Rigid),
             (carla.Transform(carla.Location(x=bound_x, y=2, z=0.5), carla.Rotation(yaw=-180.0)), Attachment.Rigid),
@@ -1265,9 +1269,9 @@ def game_loop(args):
     pygame.font.init()
     world = None
 
-    before_time = time.time()
-    before_w = None
-    current_w = None
+    # before_time = time.time()
+    # before_w = None
+    # current_w = None
 
     try:
         client = carla.Client(args.host, args.port)
