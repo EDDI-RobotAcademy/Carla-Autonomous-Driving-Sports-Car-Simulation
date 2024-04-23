@@ -1,56 +1,3 @@
-#!/usr/bin/env python
-
-# Copyright (c) 2019 Computer Vision Center (CVC) at the Universitat Autonoma de
-# Barcelona (UAB).
-#
-# This work is licensed under the terms of the MIT license.
-# For a copy, see <https://opensource.org/licenses/MIT>.
-
-# Allows controlling a vehicle with a keyboard. For a simpler and more
-# documented example, please take a look at tutorial.py.
-
-"""
-Welcome to CARLA manual control.
-
-Use ARROWS or WASD keys for control.
-
-    W            : throttle
-    S            : brake
-    A/D          : steer left/right
-    Q            : toggle reverse
-    Space        : hand-brake
-    P            : toggle autopilot
-    M            : toggle manual transmission
-    ,/.          : gear up/down
-    CTRL + W     : toggle constant velocity mode at 60 km/h
-
-    L            : toggle next light type
-    SHIFT + L    : toggle high beam
-    Z/X          : toggle right/left blinker
-    I            : toggle interior light
-
-    TAB          : change sensor position
-    ` or N       : next sensor
-    [1-9]        : change to sensor [1-9]
-    G            : toggle radar visualization
-    C            : change weather (Shift+C reverse)
-    Backspace    : change vehicle
-
-    V            : Select next map layer (Shift+V reverse)
-    B            : Load current selected map layer (Shift+B to unload)
-
-    R            : toggle recording images to disk
-
-    CTRL + R     : toggle recording of simulation (replacing any previous)
-    CTRL + P     : start replaying last recorded simulation
-    CTRL + +     : increments the start time of the replay by 1 second (+SHIFT = 10 seconds)
-    CTRL + -     : decrements the start time of the replay by 1 second (+SHIFT = 10 seconds)
-
-    F1           : toggle HUD
-    H/?          : toggle help
-    ESC          : quit
-"""
-
 from __future__ import print_function
 
 
@@ -63,8 +10,10 @@ import glob
 import os
 import sys
 
+from agents.navigation.behavior_agent import BehaviorAgent  # pylint: disable=import-error
+
 try:
-    sys.path.append(glob.glob('../carla/dist/carla-*%d.%d-%s.egg' % (
+    sys.path.append(glob.glob(os.path.dirname(os.path.dirname(os.path.abspath(__file__))) + '/carla/dist/carla-*%d.%d-%s.egg' % (
         sys.version_info.major,
         sys.version_info.minor,
         'win-amd64' if os.name == 'nt' else 'linux-x86_64'))[0])
@@ -78,8 +27,11 @@ except IndexError:
 
 
 import carla
+import time # to set a delay after each photo
+import numpy as np #in this example to change image representation - re-shaping
 
 from carla import ColorConverter as cc
+
 
 import argparse
 import collections
@@ -120,6 +72,8 @@ try:
     from pygame.locals import K_m
     from pygame.locals import K_n
     from pygame.locals import K_p
+    from pygame.locals import K_k
+    from pygame.locals import K_j
     from pygame.locals import K_q
     from pygame.locals import K_r
     from pygame.locals import K_s
@@ -129,6 +83,7 @@ try:
     from pygame.locals import K_z
     from pygame.locals import K_MINUS
     from pygame.locals import K_EQUALS
+    from pygame.locals import K_e
 except ImportError:
     raise RuntimeError('cannot import pygame, make sure pygame package is installed')
 
@@ -142,7 +97,44 @@ except ImportError:
 # -- Global functions ----------------------------------------------------------
 # ==============================================================================
 
+def check_reached_target(vehicle, target_location):
+    vehicle_location = vehicle.get_location()
+    distance_to_target = vehicle_location.distance(target_location)
+    return distance_to_target < 1.0  # Define a threshold distance for reaching the target
 
+
+# Define target velocity
+target_velocity = 5  # m/s
+
+
+# Define a function to calculate control commands
+def calculate_control(vehicle, target_location, target_velocity):
+    # Get current vehicle location and velocity
+    vehicle_location = vehicle.get_location()
+    vehicle_velocity = vehicle.get_velocity()
+
+    # Calculate the direction vector towards the target location
+    direction_vector = target_location - vehicle_location
+    direction_vector_length = math.sqrt(direction_vector.x ** 2 + direction_vector.y ** 2 + direction_vector.z ** 2)
+    normalized_direction_vector = carla.Vector3D(direction_vector.x / direction_vector_length,
+                                                 direction_vector.y / direction_vector_length,
+                                                 direction_vector.z / direction_vector_length)
+
+    # Calculate throttle command
+    throttle = min(target_velocity, direction_vector_length)
+
+    # Calculate steering command (simple proportional control)
+    # Note: This is a simple implementation and may need adjustments for better control
+    desired_steering = math.atan2(normalized_direction_vector.y, normalized_direction_vector.x)
+    current_yaw = math.atan2(vehicle_velocity.y, vehicle_velocity.x)
+    steering = max(-1.0, min((desired_steering - current_yaw) / math.pi, 1.0))
+
+    # Construct control command
+    control = carla.VehicleControl()
+    control.throttle = throttle
+    control.steering = steering
+
+    return control
 def find_weather_presets():
     rgx = re.compile('.+?(?:(?<=[a-z])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])|$)')
     name = lambda x: ' '.join(m.group(0) for m in rgx.finditer(x))
@@ -234,17 +226,16 @@ class World(object):
             spawn_point.rotation.pitch = 0.0
             self.destroy()
             self.player = self.world.try_spawn_actor(blueprint, spawn_point)
-            self.modify_vehicle_physics(self.player)
         while self.player is None:
             if not self.map.get_spawn_points():
                 print('There are no spawn points available in your map/town.')
                 print('Please add some Vehicle Spawn Point to your UE4 scene.')
                 sys.exit(1)
-            spawn_point = carla.Transform(carla.Location(x=0, y=0, z=3), carla.Rotation())
             # spawn_points = self.map.get_spawn_points()
             # spawn_point = random.choice(spawn_points) if spawn_points else carla.Transform()
+            spawn_point = carla.Transform(carla.Location(x=0, y=-84.5, z=2), carla.Rotation())
             self.player = self.world.try_spawn_actor(blueprint, spawn_point)
-            self.modify_vehicle_physics(self.player)
+
         # Set up the sensors.
         self.collision_sensor = CollisionSensor(self.player, self.hud)
         self.lane_invasion_sensor = LaneInvasionSensor(self.player, self.hud)
@@ -285,11 +276,6 @@ class World(object):
             self.radar_sensor.sensor.destroy()
             self.radar_sensor = None
 
-    def modify_vehicle_physics(self, vehicle):
-        physics_control = vehicle.get_physics_control()
-        physics_control.use_sweep_wheel_collision = True
-        vehicle.apply_physics_control(physics_control)
-
     def tick(self, clock):
         self.hud.tick(self, clock)
 
@@ -327,12 +313,15 @@ class World(object):
 class KeyboardControl(object):
     """Class that handles keyboard input."""
     def __init__(self, world, start_in_autopilot):
+        self._carsim_enabled = False
+        self._carsim_road = False
         self._autopilot_enabled = start_in_autopilot
         if isinstance(world.player, carla.Vehicle):
             self._control = carla.VehicleControl()
             self._lights = carla.VehicleLightState.NONE
             world.player.set_autopilot(self._autopilot_enabled)
             world.player.set_light_state(self._lights)
+
         elif isinstance(world.player, carla.Walker):
             self._control = carla.WalkerControl()
             self._autopilot_enabled = False
@@ -418,6 +407,17 @@ class KeyboardControl(object):
                     # replayer
                     client.replay_file("manual_recording.rec", world.recording_start, 0, 0)
                     world.camera_manager.set_sensor(current_index)
+                elif event.key == K_k and (pygame.key.get_mods() & KMOD_CTRL):
+                    print("k pressed")
+                    world.player.enable_carsim("d:/CVC/carsim/DataUE4/ue4simfile.sim")
+                elif event.key == K_j and (pygame.key.get_mods() & KMOD_CTRL):
+                    self._carsim_road = not self._carsim_road
+                    world.player.use_carsim_road(self._carsim_road)
+                    print("j pressed, using carsim road =", self._carsim_road)
+                # elif event.key == K_i and (pygame.key.get_mods() & KMOD_CTRL):
+                #     print("i pressed")
+                #     imp = carla.Location(z=50000)
+                #     world.player.add_impulse(imp)
                 elif event.key == K_MINUS and (pygame.key.get_mods() & KMOD_CTRL):
                     if pygame.key.get_mods() & KMOD_SHIFT:
                         world.recording_start -= 10
@@ -447,6 +447,8 @@ class KeyboardControl(object):
                         world.player.set_autopilot(self._autopilot_enabled)
                         world.hud.notification(
                             'Autopilot %s' % ('On' if self._autopilot_enabled else 'Off'))
+
+
                     elif event.key == K_l and pygame.key.get_mods() & KMOD_CTRL:
                         current_lights ^= carla.VehicleLightState.Special1
                     elif event.key == K_l and pygame.key.get_mods() & KMOD_SHIFT:
@@ -560,7 +562,7 @@ class HUD(object):
         mono = pygame.font.match_font(mono)
         self._font_mono = pygame.font.Font(mono, 12 if os.name == 'nt' else 14)
         self._notifications = FadingText(font, (width, 40), (0, height - 40))
-        self.help = HelpText(pygame.font.Font(mono, 16), width, height)
+        # self.help = HelpText(pygame.font.Font(mono, 16), width, height)
         self.server_fps = 0
         self.frame = 0
         self.simulation_time = 0
@@ -596,7 +598,7 @@ class HUD(object):
             'Client:  % 16.0f FPS' % clock.get_fps(),
             '',
             'Vehicle: % 20s' % get_actor_display_name(world.player, truncate=20),
-            'Map:     % 20s' % world.map.name,
+            'Map:     % 20s' % world.map.name.split('/')[-1],
             'Simulation time: % 12s' % datetime.timedelta(seconds=int(self.simulation_time)),
             '',
             'Speed:   % 15.0f km/h' % (3.6 * math.sqrt(v.x**2 + v.y**2 + v.z**2)),
@@ -681,7 +683,7 @@ class HUD(object):
                     display.blit(surface, (8, v_offset))
                 v_offset += 18
         self._notifications.render(display)
-        self.help.render(display)
+        # self.help.render(display)
 
 
 # ==============================================================================
@@ -955,10 +957,10 @@ class CameraManager(object):
         bound_y = 0.5 + self._parent.bounding_box.extent.y
         Attachment = carla.AttachmentType
         self._camera_transforms = [
-            (carla.Transform(carla.Location(x=-5.5, z=2.5), carla.Rotation(pitch=8.0)), Attachment.SpringArm),
+            (carla.Transform(carla.Location(x=-5.5, z=2.5), carla.Rotation(pitch=8.0)), Attachment.Rigid),
             (carla.Transform(carla.Location(x=1.6, z=1.7)), Attachment.Rigid),
-            (carla.Transform(carla.Location(x=5.5, y=1.5, z=1.5)), Attachment.SpringArm),
-            (carla.Transform(carla.Location(x=-8.0, z=6.0), carla.Rotation(pitch=6.0)), Attachment.SpringArm),
+            (carla.Transform(carla.Location(x=5.5, y=1.5, z=1.5)), Attachment.Rigid),
+            (carla.Transform(carla.Location(x=-8.0, z=6.0), carla.Rotation(pitch=6.0)), Attachment.Rigid),
             (carla.Transform(carla.Location(x=-1, y=-bound_y, z=0.5)), Attachment.Rigid)]
         self.transform_index = 1
         self.sensors = [
@@ -1078,6 +1080,7 @@ class CameraManager(object):
 
 
 def game_loop(args):
+    global destination_point
     pygame.init()
     pygame.font.init()
     world = None
@@ -1089,14 +1092,15 @@ def game_loop(args):
         display = pygame.display.set_mode(
             (args.width, args.height),
             pygame.HWSURFACE | pygame.DOUBLEBUF)
-        display.fill((0,0,0))
-        pygame.display.flip()
 
         hud = HUD(args.width, args.height)
         world = World(client.get_world(), hud, args)
         controller = KeyboardControl(world, args.autopilot)
 
         clock = pygame.time.Clock()
+        # agent = BehaviorAgent(world.player, behavior=args.behavior)
+        # destination_point = carla.Location(x=24.3, y=-25, z=2)
+        # agent.set_destination(agent.vehicle.get_location(), destination_point, clean=True)
         while True:
             clock.tick_busy_loop(60)
             if controller.parse_events(client, world, clock):
@@ -1105,6 +1109,17 @@ def game_loop(args):
             world.render(display)
             pygame.display.flip()
 
+            # Calculate control command
+            control = calculate_control(world.player, target_location, target_velocity)
+
+            # Apply control command
+            world.player.apply_control(control)
+
+            # Check if the vehicle reached the target waypoint
+            if check_reached_target(self.player, target_location):
+                control.throttle = 0  # Stop the vehicle
+                world.player.apply_control(control)
+                break  # Exit the loop if the vehicle reaches the target waypoint
     finally:
 
         if (world and world.recording_enabled):
@@ -1132,8 +1147,8 @@ def main():
     argparser.add_argument(
         '--host',
         metavar='H',
-        default='192.168.20.36',
-        help='IP of the host server (default: 192.168.20.36)')
+        default='127.0.0.1',
+        help='IP of the host server (default: 127.0.0.1)')
     argparser.add_argument(
         '-p', '--port',
         metavar='P',
@@ -1164,6 +1179,7 @@ def main():
         default=2.2,
         type=float,
         help='Gamma correction of the camera (default: 2.2)')
+    
     args = argparser.parse_args()
 
     args.width, args.height = [int(x) for x in args.res.split('x')]
