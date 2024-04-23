@@ -7,6 +7,7 @@ import os
 import matplotlib.pyplot as plt
 from sklearn.cluster import HDBSCAN
 import pandas as pd
+from colorama import Fore, Style
 
 
 def get_local_ply():
@@ -106,6 +107,16 @@ class TestPointCloud(unittest.TestCase):
     point_clouds = None
     exit = False
 
+    left_detection = False
+    right_detection = False
+
+    min_bound = (-9, -10, 0)
+    max_bound = (9, -6, 1.5)
+    ego_vehicle_box = o3d.geometry.AxisAlignedBoundingBox(min_bound=min_bound, max_bound=max_bound)
+    ego_vehicle_box.color = (0, 1, 0)
+
+    empty_space_box = None
+
     def test_basic_point_cloud(self):
         point_clouds = get_local_ply()
         o3d.visualization.draw_geometries(point_clouds)
@@ -117,12 +128,12 @@ class TestPointCloud(unittest.TestCase):
         pcd.points = o3d.utility.Vector3dVector()
         for i in range(len(point_clouds) - 1):
             points = np.asarray(point_clouds[i].points)
-            # fix left / right inversion
-            pcd.points.extend(points * [-1, 1, 1])
+            # fix left / right inversion & z axis calibration
+            pcd.points.extend(points * [-1, 1, 1] + [0, 0, 3])
 
-        pcd_1 = pcd.voxel_down_sample(voxel_size=0.05)
-        pcd_2, inliers = pcd_1.remove_radius_outlier(nb_points=20, radius=0.3)
-        plane_model, road_inliers = pcd_2.segment_plane(distance_threshold=0.1, ransac_n=3, num_iterations=100)
+        pcd_1 = pcd.voxel_down_sample(voxel_size=0.02)
+        pcd_2, inliers = pcd_1.remove_radius_outlier(nb_points=30, radius=0.3)
+        plane_model, road_inliers = pcd_2.segment_plane(distance_threshold=0.05, ransac_n=3, num_iterations=100)
         pcd_3 = pcd_2.select_by_index(road_inliers, invert=True)
 
         clusterer = HDBSCAN(min_cluster_size=30)
@@ -138,20 +149,83 @@ class TestPointCloud(unittest.TestCase):
         bbox_objects = []
         indexes = pd.Series(range(len(labels))).groupby(labels, sort=False).apply(list).tolist()
 
-        MAX_POINTS = 3000
+        # ego_vehicle_box_points = o3d.utility.Vector3dVector([[-4, -2, 0],
+        #                                                      [-4, -2, 1],
+        #                                                      [-4, 2, 1],
+        #                                                      [4, 2, 1],
+        #                                                      [4, -2, 0],
+        #                                                      [4, -2, 1],
+        #                                                      [-4, 2, 0],
+        #                                                      [4, 2, 0]])
+
+        MAX_POINTS = 4000
         MIN_POINTS = 50
 
-        for i in range(0, len(indexes)):
-            nb_points = len(pcd_3.select_by_index(indexes[i]).points)
-            if (nb_points > MIN_POINTS and nb_points < MAX_POINTS):
-                sub_cloud = pcd_3.select_by_index(indexes[i])
-                bbox_object = sub_cloud.get_axis_aligned_bounding_box()
-                bbox_object.color = (0, 0, 1)
-                bbox_objects.append(bbox_object)
-                print("ID: {}\n"
-                      "center: {}\n"
-                      "box points: {}"
-                      .format(i, bbox_object.get_center(), np.asarray(bbox_object.get_box_points())))
+        def detection_loop():
+            for i in range(0, len(indexes)):
+                nb_points = len(pcd_3.select_by_index(indexes[i]).points)
+                if (nb_points > MIN_POINTS and nb_points < MAX_POINTS):
+                    sub_cloud = pcd_3.select_by_index(indexes[i])
+                    bbox_object = sub_cloud.get_axis_aligned_bounding_box()
+                    # bbox_object = sub_cloud.get_oriented_bounding_box()
+                    bbox_object.color = (0, 0, 1)
+                    bbox_objects.append(bbox_object)
+                    print("ID: {}\n"
+                          "center: {}\n"
+                          "box points: {}"
+                          .format(i, bbox_object.get_center(), np.asarray(bbox_object.get_box_points())))
+                    if len(self.ego_vehicle_box.get_point_indices_within_bounding_box(sub_cloud.points)) > MIN_POINTS:
+                        print(f'{Fore.RED}point cloud in ego_vehicle_box is detected!{Style.RESET_ALL}')
+                        for point in sub_cloud.points:
+                            if point[0] < 0 and not self.left_detection:
+                                print(f'{Fore.GREEN}The object id: {i} is located on the left side.{Style.RESET_ALL}')
+                                self.left_detection = True
+                            if point[0] > 0 and not self.right_detection:
+                                print(f'{Fore.GREEN}The object id: {i} is located on the right side.{Style.RESET_ALL}')
+                                self.right_detection = True
+
+            if not self.left_detection and not self.right_detection:
+                print(
+                    f'{Fore.RED}Both side of ego vehicle is empty space! (maybe a parking lot){Style.RESET_ALL}')
+                empty_space_box_min_bound = (self.min_bound[0] + 0.2, self.min_bound[1] + 0.2, 0)
+                empty_space_box_max_bound = (self.max_bound[0] - 0.2, self.max_bound[1] - 0.2, 1)
+                self.empty_space_box = o3d.geometry.AxisAlignedBoundingBox(min_bound=empty_space_box_min_bound,
+                                                                           max_bound=empty_space_box_max_bound)
+                self.empty_space_box.color = (0.5, 0.3, 0.1)
+            elif not self.left_detection and self.right_detection:
+                print(
+                    f'{Fore.RED}Left side of ego vehicle is empty space! (maybe a parking lot){Style.RESET_ALL}')
+                empty_space_box_min_bound = (self.min_bound[0] + 0.2, self.min_bound[1] + 0.2, 0)
+                empty_space_box_max_bound = (-1, self.max_bound[1] - 0.2, 1)
+                self.empty_space_box = o3d.geometry.AxisAlignedBoundingBox(min_bound=empty_space_box_min_bound,
+                                                                           max_bound=empty_space_box_max_bound)
+                self.empty_space_box.color = (0.5, 0.3, 0.1)
+                print(
+                    f'{Fore.RED}Left side of ego vehicle is empty space! (maybe a parking lot){Style.RESET_ALL}')
+            elif not self.right_detection and self.left_detection:
+                print(
+                    f'{Fore.RED}Right side of ego vehicle is empty space! (maybe a parking lot){Style.RESET_ALL}')
+                empty_space_box_min_bound = (1, self.min_bound[1] + 0.2, 0)
+                empty_space_box_max_bound = (self.max_bound[0] - 0.2, self.max_bound[1] - 0.2, 1)
+                self.empty_space_box = o3d.geometry.AxisAlignedBoundingBox(min_bound=empty_space_box_min_bound,
+                                                                           max_bound=empty_space_box_max_bound)
+                self.empty_space_box.color = (0.5, 0.3, 0.1)
+            else:
+                print(
+                    f'{Fore.RED}Ego vehicle bounding box should be relocated! (no empty space currently){Style.RESET_ALL}')
+                updated_min_bound = (self.min_bound[0], self.min_bound[1] + 4, self.min_bound[2])
+                updated_max_bound = (self.max_bound[0], self.max_bound[1] + 4, self.max_bound[2])
+                self.min_bound = updated_min_bound
+                self.max_bound = updated_max_bound
+                updated_detection_box = o3d.geometry.AxisAlignedBoundingBox(min_bound=self.min_bound,
+                                                                            max_bound=self.max_bound)
+                self.ego_vehicle_box = updated_detection_box
+                self.ego_vehicle_box.color = (0, 1, 0)
+                self.left_detection = False
+                self.right_detection = False
+                detection_loop()
+
+        detection_loop()
 
         print("Number of Bounding Box : ", len(bbox_objects))
 
@@ -183,10 +257,11 @@ class TestPointCloud(unittest.TestCase):
         vis.add_geometry(lineset_nth_yz)
         vis.add_geometry(lineset_nth_zx)
         vis.add_geometry(lineset_nth_xy)
+        vis.add_geometry(self.ego_vehicle_box)
+        vis.add_geometry(self.empty_space_box)
 
         vis.run()
         vis.destroy_window()
-
         # o3d.visualization.draw_geometries(list_of_visuals)
 
     def test_bounding_box_of_field(self):
