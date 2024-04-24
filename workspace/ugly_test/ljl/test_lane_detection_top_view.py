@@ -1139,6 +1139,60 @@ class LaneDetector:
     #     x1, y1, x2, y2 = line
     #     plt.plot([x1, x2], [y1, y2], color='red')
 
+    def line_points(self, image, lines):
+        left_line1_point, left_line2_point, right_line1_point, right_line2_point = [], [], [], []
+        for line in lines:
+            x1, y1, x2, y2 = line[0]
+            # print(line[0])
+
+            if x1 < 700 and x2 < 700:
+                if 130 < y1 < 170 and 130 < y2 < 170:
+                    left_line1_point.append(np.array([x1, y1, x2, y2]))
+
+                elif 350 < y1 < 390 and 350 < y2 < 390:
+                    left_line2_point.append(np.array([x1, y1, x2, y2]))
+
+            else:
+                if 130 < y1 < 170 and 130 < y2 < 170:
+                    right_line1_point.append(np.array([x1, y1, x2, y2]))
+
+                elif 350 < y1 < 390 and 350 < y2 < 390:
+                    right_line2_point.append(np.array([x1, y1, x2, y2]))
+
+            # if x1 < image.shape[1]/2 and x2 < image.shape[1]/2:
+            #     if image.shape[0] * 0.2 < y1 < image.shape[0] * 0.5 and image.shape[0] * 0.2 < y2 < image.shape[0] * 0.5:
+            #         left_line1_point.append(np.array([x1, y1, x2, y2]))
+            #
+            #     elif image.shape[0] * 0.5 < y1 < image.shape[0] * 0.8 and image.shape[0] * 0.5 < y2 < image.shape[0] * 0.8:
+            #         left_line2_point.append(np.array([x1, y1, x2, y2]))
+            #
+            # else:
+            #     if image.shape[0] * 0.2 < y1 < image.shape[0] * 0.5 and image.shape[0] * 0.2 < y2 < image.shape[0] * 0.5:
+            #         right_line1_point.append(np.array([x1, y1, x2, y2]))
+            #
+            #     elif image.shape[0] * 0.5 < y1 < image.shape[0] * 0.8 and image.shape[0] * 0.5 < y2 < image.shape[0] * 0.8:
+            #         right_line2_point.append(np.array([x1, y1, x2, y2]))
+
+            # self.plot_line(image, line[0])
+
+        if left_line1_point and left_line2_point and right_line1_point and right_line2_point:
+            left_line1_max = np.max(left_line1_point, axis=0)
+            left_line2_max = np.max(left_line2_point, axis=0)
+            right_line1_max = np.max(right_line1_point, axis=0)
+            right_line2_max = np.max(right_line2_point, axis=0)
+
+            left_line1_min = np.min(left_line1_point, axis=0)
+            left_line2_min = np.min(left_line2_point, axis=0)
+            right_line1_min = np.min(right_line1_point, axis=0)
+            right_line2_min = np.min(right_line2_point, axis=0)
+
+            left_line1 = np.array([left_line1_min[0], left_line1_max[1], left_line1_max[2], left_line1_max[3]])
+            left_line2 = np.array([left_line2_min[0], left_line2_max[1], left_line2_max[2], left_line2_max[3]])
+            right_line1 = np.array([right_line1_min[0], right_line1_max[1], right_line1_max[2], right_line1_max[3]])
+            right_line2 = np.array([right_line2_min[0], right_line2_max[1], right_line2_max[2], right_line2_max[3]])
+
+            return np.array([left_line1, left_line2, right_line1, right_line2])
+
 
     def canny(self, image):
         gray_image = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
@@ -1152,8 +1206,12 @@ class LaneDetector:
         height = image.shape[0]  # row value
         width = image.shape[1]  # column value
 
+        # polygons = np.array([
+        #     [(int(0.09 * width), height), (width, height), (width, 0), (int(0.09 * width), 0)]
+        # ])
         polygons = np.array([
-            [(int(0.09 * width), height), (width, height), (width, 0), (int(0.09 * width), 0)]
+            [(int(0.05 * width), int(0.8 * height)), (width, int(0.8 * height)),
+             (width, int(0.2 * height)), (int(0.05 * width), int(0.2 * height))]
         ])
 
         mask = np.zeros_like(image)
@@ -1168,7 +1226,8 @@ class LaneDetector:
         width = image.shape[1]
 
         polygons = np.array([
-            [(int(0.09 * width), height), (width, height), (width, 0), (int(0.09 * width), 0)]
+            [(int(0.05 * width), int(0.8 * height)), (width, int(0.8 * height)),
+             (width, int(0.2 * height)), (int(0.05 * width), int(0.2 * height))]
         ])
 
         roi_image = cv2.polylines(image, [polygons], True, (0, 0, 255), 10)
@@ -1215,8 +1274,11 @@ class LaneDetector:
 
         if lines is not None:
             min_max_lines = self.min_max_points(lane_image, lines)
-            if min_max_lines is not None:
-                line_image = self.display_lines(lane_image, min_max_lines)
+            line_point = self.line_points(lane_image, lines)
+            # line_point = self.line_points(cropped_image, lines)
+
+            if line_point is not None:
+                line_image = self.display_lines(lane_image, line_point)
                 combined_image = cv2.addWeighted(lane_image, 0.8, line_image, 1, 1)
 
                 # left_line = min_max_lines[0]
