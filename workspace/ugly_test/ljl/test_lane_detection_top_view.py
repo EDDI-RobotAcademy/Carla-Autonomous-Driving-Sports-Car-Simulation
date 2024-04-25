@@ -1220,8 +1220,19 @@ class LaneDetector:
             left_line1_min = np.min(left_line1_point, axis=0)
             left_line2_min = np.min(left_line2_point, axis=0)
 
-            left_line1 = np.array([left_line1_min[0], left_line1_max[1], left_line1_max[2], left_line1_max[3]])
-            left_line2 = np.array([left_line2_min[0], left_line2_max[1], left_line2_max[2], left_line2_max[3]])
+            # adjust to fit in the middle of the line
+            left_line1_y1_average = (left_line1_max[1] + left_line1_min[1])/2
+            left_line1_y2_average = (left_line1_max[3] + left_line1_min[3])/2
+
+            left_line2_y1_average = (left_line2_max[1] + left_line2_min[1]) / 2
+            left_line2_y2_average = (left_line2_max[3] + left_line2_min[3]) / 2
+
+
+            # left_line1 = np.array([left_line1_min[0], left_line1_max[1], left_line1_max[2], left_line1_max[3]])
+            # left_line2 = np.array([left_line2_min[0], left_line2_max[1], left_line2_max[2], left_line2_max[3]])
+
+            left_line1 = np.array([left_line1_min[0], left_line1_y1_average, left_line1_max[2], left_line1_y2_average])
+            left_line2 = np.array([left_line2_min[0], left_line2_y1_average, left_line2_max[2], left_line2_y2_average])
 
             return np.array([left_line1, left_line2])
 
@@ -1229,14 +1240,22 @@ class LaneDetector:
         elif left_line1_point and not left_line2_point:
             left_line1_max = np.max(left_line1_point, axis=0)
             left_line1_min = np.min(left_line1_point, axis=0)
-            left_line1 = np.array([left_line1_min[0], left_line1_max[1], left_line1_max[2], left_line1_max[3]])
+
+            left_line1_y1_average = (left_line1_max[1] + left_line1_min[1]) / 2
+            left_line1_y2_average = (left_line1_max[3] + left_line1_min[3]) / 2
+
+            left_line1 = np.array([left_line1_min[0], left_line1_y1_average, left_line1_max[2], left_line1_y2_average])
 
             return np.array([left_line1])
 
         elif not left_line1_point and left_line2_point:
             left_line2_max = np.max(left_line2_point, axis=0)
             left_line2_min = np.min(left_line2_point, axis=0)
-            left_line2 = np.array([left_line2_min[0], left_line2_max[1], left_line2_max[2], left_line2_max[3]])
+
+            left_line2_y1_average = (left_line2_max[1] + left_line2_min[1]) / 2
+            left_line2_y2_average = (left_line2_max[3] + left_line2_min[3]) / 2
+
+            left_line2 = np.array([left_line2_min[0], left_line2_y1_average, left_line2_max[2], left_line2_y2_average])
 
             return np.array([left_line2])
 
@@ -1268,8 +1287,17 @@ class LaneDetector:
             right_line1_min = np.min(right_line1_point, axis=0)
             right_line2_min = np.min(right_line2_point, axis=0)
 
-            right_line1 = np.array([right_line1_min[0], right_line1_max[1], right_line1_max[2], right_line1_max[3]])
-            right_line2 = np.array([right_line2_min[0], right_line2_max[1], right_line2_max[2], right_line2_max[3]])
+            right_line1_y1_average = (right_line1_max[1] + right_line1_min[1]) / 2
+            right_line1_y2_average = (right_line1_max[3] + right_line1_min[3]) / 2
+
+            right_line2_y1_average = (right_line2_max[1] + right_line2_min[1]) / 2
+            right_line2_y2_average = (right_line2_max[3] + right_line2_min[3]) / 2
+
+            # right_line1 = np.array([right_line1_min[0], right_line1_max[1], right_line1_max[2], right_line1_max[3]])
+            # right_line2 = np.array([right_line2_min[0], right_line2_max[1], right_line2_max[2], right_line2_max[3]])
+
+            right_line1 = np.array([right_line1_min[0], right_line1_y1_average, right_line1_max[2], right_line1_y2_average])
+            right_line2 = np.array([right_line2_min[0], right_line2_y1_average, right_line2_max[2], right_line2_y2_average])
 
             return np.array([right_line1, right_line2])
 
@@ -1277,7 +1305,11 @@ class LaneDetector:
         elif right_line1_point and not right_line2_point:
             right_line1_max = np.max(right_line1_point, axis=0)
             right_line1_min = np.min(right_line1_point, axis=0)
-            right_line1 = np.array([right_line1_min[0], right_line1_max[1], right_line1_max[2], right_line1_max[3]])
+
+            right_line1_y1_average = (right_line1_max[1] + right_line1_min[1]) / 2
+            right_line1_y2_average = (right_line1_max[3] + right_line1_min[3]) / 2
+
+            right_line1 = np.array([right_line1_min[0], right_line1_y1_average, right_line1_max[2], right_line1_y2_average])
 
             return np.array([right_line1])
 
@@ -1285,7 +1317,11 @@ class LaneDetector:
         elif not right_line1_point and right_line2_point:
             right_line2_max = np.max(right_line2_point, axis=0)
             right_line2_min = np.min(right_line2_point, axis=0)
-            right_line2 = np.array([right_line2_min[0], right_line2_max[1], right_line2_max[2], right_line2_max[3]])
+
+            right_line2_y1_average = (right_line2_max[1] + right_line2_min[1]) / 2
+            right_line2_y2_average = (right_line2_max[3] + right_line2_min[3]) / 2
+
+            right_line2 = np.array([right_line2_min[0], right_line2_y1_average, right_line2_max[2], right_line2_y2_average])
 
             return np.array([right_line2])
 
