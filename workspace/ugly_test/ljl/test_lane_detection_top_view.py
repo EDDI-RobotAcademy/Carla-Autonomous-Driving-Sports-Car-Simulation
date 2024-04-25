@@ -1199,11 +1199,18 @@ class LaneDetector:
             x1, y1, x2, y2 = line[0]
             # print(line[0])
 
-            if 60 < x1 < 700 and 60 < x2 < 700:
-                if 130 < y1 < 370 and 130 < y2 < 370:
+            # if 60 < x1 < 700 and 60 < x2 < 700:
+            #     if 130 < y1 < 370 and 130 < y2 < 370:
+            #         left_line1_point.append(np.array([x1, y1, x2, y2]))
+            #
+            #     elif 340 < y1 < 570 and 340 < y2 < 570:
+            #         left_line2_point.append(np.array([x1, y1, x2, y2]))
+
+            if 0 < x1 < image.shape[1] and 0 < x2 < image.shape[1]:
+                if 0 < y1 < image.shape[0]/2 and 0 < y2 < image.shape[0]/2:
                     left_line1_point.append(np.array([x1, y1, x2, y2]))
 
-                elif 340 < y1 < 570 and 340 < y2 < 570:
+                elif image.shape[0] * 0.4 < y1 < image.shape[0] and image.shape[0] * 0.4 < y2 < image.shape[0]:
                     left_line2_point.append(np.array([x1, y1, x2, y2]))
 
         if left_line1_point and left_line2_point:
@@ -1240,11 +1247,18 @@ class LaneDetector:
             x1, y1, x2, y2 = line[0]
             # print(line[0])
 
-            if 700 < x1 < 1160 and 700 < x2 < 1160:
-                if 130 < y1 < 370 and 130 < y2 < 370:
+            # if 700 < x1 < 1160 and 700 < x2 < 1160:
+            #     if 130 < y1 < 370 and 130 < y2 < 370:
+            #         right_line1_point.append(np.array([x1, y1, x2, y2]))
+            #
+            #     elif 340 < y1 < 570 and 340 < y2 < 570:
+            #         right_line2_point.append(np.array([x1, y1, x2, y2]))
+
+            if 0 < x1 < image.shape[1] and 0 < x2 < image.shape[1]:
+                if 0 < y1 < image.shape[0]/2 and 0 < y2 < image.shape[0]/2:
                     right_line1_point.append(np.array([x1, y1, x2, y2]))
 
-                elif 340 < y1 < 570 and 340 < y2 < 570:
+                elif image.shape[0] * 0.4 < y1 < image.shape[0] and image.shape[0] * 0.4 < y2 < image.shape[0]:
                     right_line2_point.append(np.array([x1, y1, x2, y2]))
 
         if right_line1_point and right_line2_point:
@@ -1474,15 +1488,16 @@ class LaneDetector:
             cropped_image_left, 1, np.pi / 180, 15, np.array([]), minLineLength=10, maxLineGap=10)
 
         if left_lines is not None:
-            left_line_point = self.left_line_points(lane_image, left_lines)
+            # left_line_point = self.left_line_points(lane_image, left_lines)
+            left_line_point = self.left_line_points(cropped_image_left, left_lines)
 
             if left_line_point is not None:
                 left_line_image = self.display_left_lines(lane_image, left_line_point)
                 combined_left_image = cv2.addWeighted(lane_image, 0.8, left_line_image, 1, 1)
 
-                origin_line_image = self.display_origin_line(lane_image, left_lines)
-                combined_origin_image = cv2.addWeighted(lane_image, 0.8, origin_line_image, 1, 1)
-                cv2.imshow('combined_origin_image', combined_origin_image)
+                # origin_line_image = self.display_origin_line(lane_image, left_lines)
+                # combined_origin_image = cv2.addWeighted(lane_image, 0.8, origin_line_image, 1, 1)
+                # cv2.imshow('combined_origin_image', combined_origin_image)
 
             else:
                 combined_left_image = lane_image
@@ -1497,7 +1512,8 @@ class LaneDetector:
             cropped_image_right, 1, np.pi / 180, 15, np.array([]), minLineLength=10, maxLineGap=10)
 
         if right_lines is not None:
-            right_line_point = self.right_line_points(lane_image, right_lines)
+            # right_line_point = self.right_line_points(lane_image, right_lines)
+            right_line_point = self.right_line_points(cropped_image_right, right_lines)
 
             if right_line_point is not None:
                 right_line_image = self.display_left_lines(lane_image, right_line_point)
