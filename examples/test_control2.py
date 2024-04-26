@@ -9,10 +9,8 @@ from __future__ import print_function
 import glob
 import os
 import sys
-import unittest
-import time
 
-import cv2
+from agents.navigation.behavior_agent import BehaviorAgent  # pylint: disable=import-error
 
 try:
     sys.path.append(glob.glob(os.path.dirname(os.path.dirname(os.path.abspath(__file__))) + '/carla/dist/carla-*%d.%d-%s.egg' % (
@@ -29,9 +27,11 @@ except IndexError:
 
 
 import carla
+import time # to set a delay after each photo
+import numpy as np #in this example to change image representation - re-shaping
 
 from carla import ColorConverter as cc
-from carla import VehicleLightState as vls
+
 
 import argparse
 import collections
@@ -41,7 +41,6 @@ import math
 import random
 import re
 import weakref
-from numpy import random
 
 try:
     import pygame
@@ -72,7 +71,6 @@ try:
     from pygame.locals import K_l
     from pygame.locals import K_m
     from pygame.locals import K_n
-    from pygame.locals import K_o
     from pygame.locals import K_p
     from pygame.locals import K_k
     from pygame.locals import K_j
@@ -82,10 +80,10 @@ try:
     from pygame.locals import K_v
     from pygame.locals import K_w
     from pygame.locals import K_x
-    from pygame.locals import K_y
     from pygame.locals import K_z
     from pygame.locals import K_MINUS
     from pygame.locals import K_EQUALS
+    from pygame.locals import K_e
 except ImportError:
     raise RuntimeError('cannot import pygame, make sure pygame package is installed')
 
@@ -94,72 +92,10 @@ try:
 except ImportError:
     raise RuntimeError('cannot import numpy, make sure numpy package is installed')
 
-red = carla.Color(255, 0, 0)
-green = carla.Color(0, 255, 0)
-blue = carla.Color(47, 210, 231)
-cyan = carla.Color(0, 255, 255)
-yellow = carla.Color(255, 255, 0)
-orange = carla.Color(255, 162, 0)
-white = carla.Color(255, 255, 255)
 
 # ==============================================================================
 # -- Global functions ----------------------------------------------------------
 # ==============================================================================
-
-
-def draw_transform(debug, trans, col=carla.Color(255, 0, 0), lt=-1):
-    debug.draw_arrow(
-        trans.location, trans.location + trans.get_forward_vector(),
-        thickness=0.05, arrow_size=0.1, color=col, life_time=lt)
-
-
-def draw_waypoint_union(debug, w0, w1, color=carla.Color(255, 0, 0), lt=5):
-    debug.draw_line(
-        w0.transform.location + carla.Location(z=0.25),
-        w1.transform.location + carla.Location(z=0.25),
-        thickness=0.1, color=color, life_time=lt, persistent_lines=False)
-    debug.draw_point(w1.transform.location + carla.Location(z=0.25), 0.1, color, lt, False)
-
-
-def draw_waypoint_info(debug, w, lt=5):
-    w_loc = w.transform.location
-    debug.draw_string(w_loc + carla.Location(z=0.5), "lane: " + str(w.lane_id), False, yellow, lt)
-    debug.draw_string(w_loc + carla.Location(z=1.0), "road: " + str(w.road_id), False, blue, lt)
-    debug.draw_string(w_loc + carla.Location(z=-.5), str(w.lane_change), False, red, lt)
-
-
-def draw_junction(debug, junction, l_time=10):
-    """Draws a junction bounding box and the initial and final waypoint of every lane."""
-    # draw bounding box
-    box = junction.bounding_box
-    point1 = box.location + carla.Location(x=box.extent.x, y=box.extent.y, z=2)
-    point2 = box.location + carla.Location(x=-box.extent.x, y=box.extent.y, z=2)
-    point3 = box.location + carla.Location(x=-box.extent.x, y=-box.extent.y, z=2)
-    point4 = box.location + carla.Location(x=box.extent.x, y=-box.extent.y, z=2)
-    debug.draw_line(
-        point1, point2,
-        thickness=0.1, color=orange, life_time=l_time, persistent_lines=False)
-    debug.draw_line(
-        point2, point3,
-        thickness=0.1, color=orange, life_time=l_time, persistent_lines=False)
-    debug.draw_line(
-        point3, point4,
-        thickness=0.1, color=orange, life_time=l_time, persistent_lines=False)
-    debug.draw_line(
-        point4, point1,
-        thickness=0.1, color=orange, life_time=l_time, persistent_lines=False)
-    # draw junction pairs (begin-end) of every lane
-    junction_w = junction.get_waypoints(carla.LaneType.Any)
-    for pair_w in junction_w:
-        draw_transform(debug, pair_w[0].transform, orange, l_time)
-        debug.draw_point(
-            pair_w[0].transform.location + carla.Location(z=0.75), 0.1, orange, l_time, False)
-        draw_transform(debug, pair_w[1].transform, orange, l_time)
-        debug.draw_point(
-            pair_w[1].transform.location + carla.Location(z=0.75), 0.1, orange, l_time, False)
-        debug.draw_line(
-            pair_w[0].transform.location + carla.Location(z=0.75),
-            pair_w[1].transform.location + carla.Location(z=0.75), 0.1, white, l_time, False)
 
 
 def find_weather_presets():
@@ -197,8 +133,6 @@ class World(object):
         self.gnss_sensor = None
         self.imu_sensor = None
         self.radar_sensor = None
-        self.los_sensor = None
-        self.lidar_sensor = None
         self.camera_manager = None
         self._weather_presets = find_weather_presets()
         self._weather_index = 0
@@ -260,9 +194,11 @@ class World(object):
                 print('There are no spawn points available in your map/town.')
                 print('Please add some Vehicle Spawn Point to your UE4 scene.')
                 sys.exit(1)
-            spawn_points = self.map.get_spawn_points()
-            spawn_point = random.choice(spawn_points) if spawn_points else carla.Transform()
+            # spawn_points = self.map.get_spawn_points()
+            # spawn_point = random.choice(spawn_points) if spawn_points else carla.Transform()
+            spawn_point = carla.Transform(carla.Location(x=0, y=-84.5, z=2), carla.Rotation())
             self.player = self.world.try_spawn_actor(blueprint, spawn_point)
+
         # Set up the sensors.
         self.collision_sensor = CollisionSensor(self.player, self.hud)
         self.lane_invasion_sensor = LaneInvasionSensor(self.player, self.hud)
@@ -273,7 +209,6 @@ class World(object):
         self.camera_manager.set_sensor(cam_index, notify=False)
         actor_type = get_actor_display_name(self.player)
         self.hud.notification(actor_type)
-        print(self.player.bounding_box.location)
 
     def next_weather(self, reverse=False):
         self._weather_index += -1 if reverse else 1
@@ -303,24 +238,6 @@ class World(object):
         elif self.radar_sensor.sensor is not None:
             self.radar_sensor.sensor.destroy()
             self.radar_sensor = None
-
-    def toggle_los(self):
-        if self.los_sensor is None:
-            self.los_sensor = LineOfSightSensor(self.player, self.hud)
-            self.hud.notification('LineOfSightSensor On')
-        elif self.los_sensor.sensor is not None:
-            self.los_sensor.sensor.destroy()
-            self.los_sensor = None
-            self.hud.notification('LineOfSightSensor Off')
-
-    def toggle_lidar(self):
-        if self.lidar_sensor is None:
-            self.lidar_sensor = LidarSensor(self.player, self.hud)
-            self.hud.notification('LiDAR On')
-        elif self.lidar_sensor.sensor is not None:
-            self.lidar_sensor.sensor.destroy()
-            self.lidar_sensor = None
-            self.hud.notification('LiDAR Off')
 
     def tick(self, clock):
         self.hud.tick(self, clock)
@@ -367,6 +284,7 @@ class KeyboardControl(object):
             self._lights = carla.VehicleLightState.NONE
             world.player.set_autopilot(self._autopilot_enabled)
             world.player.set_light_state(self._lights)
+
         elif isinstance(world.player, carla.Walker):
             self._control = carla.WalkerControl()
             self._autopilot_enabled = False
@@ -412,10 +330,6 @@ class KeyboardControl(object):
                     world.next_weather()
                 elif event.key == K_g:
                     world.toggle_radar()
-                elif event.key == K_o:
-                    world.toggle_los()
-                elif event.key == K_y:
-                    world.toggle_lidar()
                 elif event.key == K_BACKQUOTE:
                     world.camera_manager.next_sensor()
                 elif event.key == K_n:
@@ -439,7 +353,7 @@ class KeyboardControl(object):
                         world.recording_enabled = False
                         world.hud.notification("Recorder is OFF")
                     else:
-                        client.start_recorder("/home/melodic/.config/Epic/CarlaUE4/Saved/test1.log")
+                        client.start_recorder("manual_recording.rec")
                         world.recording_enabled = True
                         world.hud.notification("Recorder is ON")
                 elif event.key == K_p and (pygame.key.get_mods() & KMOD_CTRL):
@@ -496,6 +410,15 @@ class KeyboardControl(object):
                         world.player.set_autopilot(self._autopilot_enabled)
                         world.hud.notification(
                             'Autopilot %s' % ('On' if self._autopilot_enabled else 'Off'))
+                        self.player.set_simulate_physics(False)
+                        while True:
+                            # Find next waypoint 2 meters ahead.
+
+                            # Teleport the vehicle.
+                            self.player.set_transform(carla.Location(x=24.3, y=-25, z=2))
+                    #elif event.key == K_e and not pygame.key.get_mods() & KMOD_CTRL:
+
+
                     elif event.key == K_l and pygame.key.get_mods() & KMOD_CTRL:
                         current_lights ^= carla.VehicleLightState.Special1
                     elif event.key == K_l and pygame.key.get_mods() & KMOD_SHIFT:
@@ -630,7 +553,6 @@ class HUD(object):
         t = world.player.get_transform()
         v = world.player.get_velocity()
         c = world.player.get_control()
-        bb = world.player.bounding_box
         compass = world.imu_sensor.compass
         heading = 'N' if compass > 270.5 or compass < 89.5 else ''
         heading += 'S' if 90.5 < compass < 269.5 else ''
@@ -646,7 +568,6 @@ class HUD(object):
             'Client:  % 16.0f FPS' % clock.get_fps(),
             '',
             'Vehicle: % 20s' % get_actor_display_name(world.player, truncate=20),
-            'Size: % 20s' % ('(x=%3.2f, y=%3.2f, z=%3.2f)' % (bb.extent.x, bb.extent.y, bb.extent.z)),
             'Map:     % 20s' % world.map.name.split('/')[-1],
             'Simulation time: % 12s' % datetime.timedelta(seconds=int(self.simulation_time)),
             '',
@@ -654,7 +575,7 @@ class HUD(object):
             u'Compass:% 17.0f\N{DEGREE SIGN} % 2s' % (compass, heading),
             'Accelero: (%5.1f,%5.1f,%5.1f)' % (world.imu_sensor.accelerometer),
             'Gyroscop: (%5.1f,%5.1f,%5.1f)' % (world.imu_sensor.gyroscope),
-            'Location:% 20s' % ('(% 5.1f, % 5.1f, % 5.1f)' % (t.location.x, t.location.y, t.location.z)),
+            'Location:% 20s' % ('(% 5.1f, % 5.1f)' % (t.location.x, t.location.y)),
             'GNSS:% 24s' % ('(% 2.6f, % 3.6f)' % (world.gnss_sensor.lat, world.gnss_sensor.lon)),
             'Height:  % 18.0f m' % t.location.z,
             '']
@@ -941,9 +862,8 @@ class RadarSensor(object):
         world = self._parent.get_world()
         self.debug = world.debug
         bp = world.get_blueprint_library().find('sensor.other.radar')
-        bp.set_attribute('horizontal_fov', str(100))
+        bp.set_attribute('horizontal_fov', str(35))
         bp.set_attribute('vertical_fov', str(20))
-        bp.set_attribute('range', str(5))
         self.sensor = world.spawn_actor(
             bp,
             carla.Transform(
@@ -964,23 +884,8 @@ class RadarSensor(object):
         # points = np.frombuffer(radar_data.raw_data, dtype=np.dtype('f4'))
         # points = np.reshape(points, (len(radar_data), 4))
 
-        points = np.frombuffer(radar_data.raw_data, dtype=np.dtype('f4'))
-        points = np.reshape(points, (len(radar_data), 4))
-
-        print(points)
-
-        # code convert array into list and measure distance
-        L = []
-        pointslist = points.tolist()
-        for i in range(len(pointslist)):
-            L.append(pointslist[i - 1][-1])
-
-        ave = sum(L) / len(L)
-        print(ave)
-
         current_rot = radar_data.transform.rotation
         for detect in radar_data:
-            print("Depth:", detect.depth)
             azi = math.degrees(detect.azimuth)
             alt = math.degrees(detect.altitude)
             # The 0.25 adjusts a bit the distance so the dots can
@@ -1008,81 +913,6 @@ class RadarSensor(object):
                 color=carla.Color(r, g, b))
 
 # ==============================================================================
-# -- LineOfSightSensor -------------------------------------------------------------
-# ==============================================================================
-
-
-class LineOfSightSensor(object):
-    def __init__(self, parent_actor, hud):
-        self.sensor = None
-        self._history = []
-        self._parent = parent_actor
-        self._hud = hud
-        self._event_count = 0
-        self.sensor_transform = carla.Transform(carla.Location(x=1.6, z=1.7), carla.Rotation(yaw=0))  # Put this sensor on the windshield of the car.
-        world = self._parent.get_world()
-        bp = world.get_blueprint_library().find('sensor.other.obstacle')
-        bp.set_attribute('distance', '10')
-        bp.set_attribute('hit_radius', '10')
-        bp.set_attribute('only_dynamics', 'False')
-        # bp.set_attribute('debug_linetrace', 'true')
-        # bp.set_attribute('sensor_tick', '1')
-        # self.sensor = world.spawn_actor(bp, self.sensor_transform, attach_to=self._parent)
-        self.sensor = world.spawn_actor(bp, carla.Transform(), attach_to=self._parent)
-        weak_self = weakref.ref(self)
-        self.sensor.listen(lambda event: LineOfSightSensor._on_LOS(weak_self, event))
-
-    @staticmethod
-    def _on_LOS(weak_self, event):
-        self = weak_self()
-        if not self:
-            return
-        # print (str(event.other_actor))
-        # if event.other_actor.type_id.startswith('vehicle.'):
-        #     # print ("Event %s, in line of sight with %s at distance %u" % (self._event_count, event.other_actor.type_id, event.distance))
-        #     self._event_count += 1
-
-        if event.other_actor.type_id.startswith('static.vehicle') and event.distance < 1:
-            for item in self._history:
-                if item[0] == event.other_actor.id:
-                    return
-
-            self._history.append((event.other_actor.id, event.other_actor.get_location()))
-
-            print("Event %s, too close with parked %s (less than 1 meter)" % (self._event_count, event.other_actor.type_id))
-            obstacle_location = event.other_actor.get_location()
-            obstacle_id = event.other_actor.id
-            x = obstacle_location.x
-            y = obstacle_location.y
-            z = obstacle_location.z
-            print("id = %u, location = x: %f, y: %f, z: %f" % (obstacle_id, x, y, z))
-
-            self._event_count += 1
-
-# ==============================================================================
-# -- CameraManager -------------------------------------------------------------
-# ==============================================================================
-
-
-class LidarSensor(object):
-    def __init__(self, parent_actor, hud):
-        self.sensor = None
-        self._history = []
-        self._parent = parent_actor
-        self._hud = hud
-        self._event_count = 0
-        self.sensor_transform = carla.Transform(carla.Location(z=3), carla.Rotation(yaw=-90.0))
-        world = self._parent.get_world()
-        bp = world.get_blueprint_library().find('sensor.lidar.ray_cast')
-        bp.set_attribute('channels', '32')
-        bp.set_attribute('points_per_second', '90000')
-        bp.set_attribute('rotation_frequency', '30')
-        bp.set_attribute('range', '15')
-        self.sensor = world.spawn_actor(bp, self.sensor_transform, attach_to=self._parent)
-        self.sensor.listen(lambda point_cloud: point_cloud.save_to_disk('lidar_output/%.6d.ply' % point_cloud.frame))
-
-
-# ==============================================================================
 # -- CameraManager -------------------------------------------------------------
 # ==============================================================================
 
@@ -1094,22 +924,14 @@ class CameraManager(object):
         self._parent = parent_actor
         self.hud = hud
         self.recording = False
-        bound_x = 0.5 + self._parent.bounding_box.extent.x
         bound_y = 0.5 + self._parent.bounding_box.extent.y
         Attachment = carla.AttachmentType
         self._camera_transforms = [
-            (carla.Transform(carla.Location(x=-10.5, z=2.5), carla.Rotation(pitch=8.0)), Attachment.Rigid),
-            (carla.Transform(carla.Location(z=3), carla.Rotation(yaw=-90.0)), Attachment.Rigid),
-            # (carla.Transform(carla.Location(x=bound_x-0.65, z=0.5)), Attachment.Rigid),
-            (carla.Transform(carla.Location(y=-1.3, z=1), carla.Rotation(pitch=15.0, yaw=-90.0)), Attachment.Rigid),
-            # # (carla.Transform(carla.Location(x=1.6, z=1.7)), Attachment.Rigid),
-            # # (carla.Transform(carla.Location(x=5.5, y=1.5, z=1.5)), Attachment.Rigid),
-            (carla.Transform(carla.Location(x=0.0, z=30.0), carla.Rotation(pitch=-90.0)), Attachment.Rigid),
-            (carla.Transform(carla.Location(x=-3, y=-bound_y, z=0.5)), Attachment.Rigid),
-            (carla.Transform(carla.Location(x=-3, y=bound_y, z=0.5)), Attachment.Rigid),
-            (carla.Transform(carla.Location(x=bound_x, y=2, z=0.5), carla.Rotation(yaw=-180.0)), Attachment.Rigid),
-            (carla.Transform(carla.Location(x=bound_x, y=-2, z=0.5), carla.Rotation(yaw=-180.0)), Attachment.Rigid),
-        ]
+            (carla.Transform(carla.Location(x=-5.5, z=2.5), carla.Rotation(pitch=8.0)), Attachment.Rigid),
+            (carla.Transform(carla.Location(x=1.6, z=1.7)), Attachment.Rigid),
+            (carla.Transform(carla.Location(x=5.5, y=1.5, z=1.5)), Attachment.Rigid),
+            (carla.Transform(carla.Location(x=-8.0, z=6.0), carla.Rotation(pitch=6.0)), Attachment.Rigid),
+            (carla.Transform(carla.Location(x=-1, y=-bound_y, z=0.5)), Attachment.Rigid)]
         self.transform_index = 1
         self.sensors = [
             ['sensor.camera.rgb', cc.Raw, 'Camera RGB', {}],
@@ -1147,8 +969,6 @@ class CameraManager(object):
 
             item.append(bp)
         self.index = None
-        self.sensor_list = []
-        self.sensor_data = {}
 
     def toggle_camera(self):
         self.transform_index = (self.transform_index + 1) % len(self._camera_transforms)
@@ -1223,41 +1043,6 @@ class CameraManager(object):
         if self.recording:
             image.save_to_disk('_out/%08d' % image.frame)
 
-    def setup_multiple_sensors(self, sensor_index_list, transform_index=0):
-        # only for rgb, depth, semantic -> index : 0, 2, 5
-        rigid = carla.AttachmentType.Rigid
-        bp_lib = self._parent.get_world().get_blueprint_library()
-        camera_init_transform = self._camera_transforms[transform_index][0]
-        weak_self = weakref.ref(self)
-
-        for sensor_index in sensor_index_list:
-            camera_bp = bp_lib.find(self.sensors[sensor_index][0])
-            camera = self._parent.get_world().spawn_actor(
-                camera_bp, camera_init_transform, attach_to=self._parent, attachment_type=rigid)
-            self.sensor_list.append(camera)
-            image_w = camera_bp.get_attribute("image_size_x").as_int()
-            image_h = camera_bp.get_attribute("image_size_y").as_int()
-            self.sensor_data[self.sensors[sensor_index][0]] = np.zeros((image_h, image_w, 4))
-            camera.listen(lambda image: weak_self().sensor_callback(weak_self, image, sensor_index))
-
-        for sensor in self.sensor_list:
-            if sensor.is_listening:
-                print('Sensor is listening')
-
-    @staticmethod
-    def sensor_callback(weak_self, image, sensor_index):
-        self = weak_self()
-        image.convert(self.sensors[sensor_index][1])
-        array = np.frombuffer(image.raw_data, dtype=np.dtype("uint8"))
-        array = np.reshape(array, (image.height, image.width, 4))
-        array = array[:, :, :3]
-        array = array[:, :, ::-1]
-        self.sensor_data[self.sensors[sensor_index][0]] = array
-
-    def show_tiled_view(self):
-        for sensor in self.sensor_data.keys():
-            cv2.imshow(str(sensor), self.sensor_data[sensor])
-
 
 # ==============================================================================
 # -- game_loop() ---------------------------------------------------------------
@@ -1265,13 +1050,10 @@ class CameraManager(object):
 
 
 def game_loop(args):
+    global destination_point
     pygame.init()
     pygame.font.init()
     world = None
-
-    # before_time = time.time()
-    # before_w = None
-    # current_w = None
 
     try:
         client = carla.Client(args.host, args.port)
@@ -1283,60 +1065,19 @@ def game_loop(args):
 
         hud = HUD(args.width, args.height)
         world = World(client.get_world(), hud, args)
-        # world.camera_manager.setup_multiple_sensors([5])
-        # world.camera_manager.show_tiled_view()
-        # debug = client.get_world().debug
         controller = KeyboardControl(world, args.autopilot)
 
         clock = pygame.time.Clock()
-
-        # map = world.world.get_map()
-        # vehicle = world.player
-
-        # current_w = map.get_waypoint(vehicle.get_location())
-        # before_w = current_w
-        # current_w = map.get_waypoint(vehicle.get_location())
-
+        # agent = BehaviorAgent(world.player, behavior=args.behavior)
+        # destination_point = carla.Location(x=24.3, y=-25, z=2)
+        # agent.set_destination(agent.vehicle.get_location(), destination_point, clean=True)
         while True:
-            clock.tick_busy_loop(30)
+            clock.tick_busy_loop(60)
             if controller.parse_events(client, world, clock):
                 return
             world.tick(clock)
             world.render(display)
-            # world.camera_manager.show_tiled_view()
-
-            # current_w = map.get_waypoint(
-            #     vehicle.get_location(),
-            #     lane_type=carla.LaneType.Driving | carla.LaneType.Shoulder | carla.LaneType.Sidewalk | carla.LaneType.Parking)
-
-            # if current_w.lane_type == carla.LaneType.Parking:
-            #     print("Try Parking")world.camera_manager.show_tiled_view()
-            # if current_w.lane_type == carla.LaneType.Parking:
-            #     print("Try Parking")
-
-            # next_w = map.get_waypoint(vehicle.get_location(),
-            #                           lane_type=carla.LaneType.Driving | carla.LaneType.Shoulder | carla.LaneType.Sidewalk)
-            # # Check if the vehicle is moving
-            # if next_w.id != current_w.id:
-            #     vector = vehicle.get_velocity()
-            #     # Check if the vehicle is on a sidewalk
-            #     if time.time() - before_time >= 1:
-            #         if current_w.lane_type == carla.LaneType.Sidewalk:
-            #             # draw_waypoint_union(debug, current_w, next_w, cyan if current_w.is_junction else red, 60)
-            #             draw_waypoint_union(debug, before_w, current_w, cyan if current_w.is_junction else red, 60)
-            #         else:
-            #             # draw_waypoint_union(debug, current_w, next_w, cyan if current_w.is_junction else green, 60)
-            #             draw_waypoint_union(debug, before_w, current_w, cyan if current_w.is_junction else green, 60)
-            #         debug.draw_string(current_w.transform.location, str('%15.0f km/h' % (
-            #                     3.6 * math.sqrt(vector.x ** 2 + vector.y ** 2 + vector.z ** 2))), False, orange, 60)
-            #         draw_transform(debug, current_w.transform, white, 60)
-            #         before_time = time.time()
-            #         before_w = current_w
-            #
-            # # Update the current waypoint and sleep for some time
-            # current_w = next_w
             pygame.display.flip()
-            # cv2.waitKey(1)
 
     finally:
 
@@ -1344,8 +1085,6 @@ def game_loop(args):
             client.stop_recorder()
 
         if world is not None:
-            for sensor in world.camera_manager.sensor_list:
-                sensor.destroy()
             world.destroy()
 
         pygame.quit()
@@ -1399,56 +1138,7 @@ def main():
         default=2.2,
         type=float,
         help='Gamma correction of the camera (default: 2.2)')
-    argparser.add_argument(
-        '-n', '--number-of-vehicles',
-        metavar='N',
-        default=10,
-        type=int,
-        help='number of vehicles (default: 10)')
-    argparser.add_argument(
-        '-w', '--number-of-walkers',
-        metavar='W',
-        default=50,
-        type=int,
-        help='number of walkers (default: 50)')
-    argparser.add_argument(
-        '--safe',
-        action='store_true',
-        help='avoid spawning vehicles prone to accidents')
-    argparser.add_argument(
-        '--filterv',
-        metavar='PATTERN',
-        default='vehicle.*',
-        help='vehicles filter (default: "vehicle.*")')
-    argparser.add_argument(
-        '--filterw',
-        metavar='PATTERN',
-        default='walker.pedestrian.*',
-        help='pedestrians filter (default: "walker.pedestrian.*")')
-    argparser.add_argument(
-        '--tm-port',
-        metavar='P',
-        default=8000,
-        type=int,
-        help='port to communicate with TM (default: 8000)')
-    argparser.add_argument(
-        '--sync',
-        action='store_true',
-        help='Synchronous mode execution')
-    argparser.add_argument(
-        '--hybrid',
-        action='store_true',
-        help='Enanble')
-    argparser.add_argument(
-        '-s', '--seed',
-        metavar='S',
-        type=int,
-        help='Random device seed')
-    argparser.add_argument(
-        '--car-lights-on',
-        action='store_true',
-        default=False,
-        help='Enanble car lights')
+    
     args = argparser.parse_args()
 
     args.width, args.height = [int(x) for x in args.res.split('x')]
@@ -1458,224 +1148,16 @@ def main():
 
     logging.info('listening to server %s:%s', args.host, args.port)
 
-    vehicles_list = []
-    walkers_list = []
-    all_id = []
-    client = carla.Client(args.host, args.port)
-    client.set_timeout(10.0)
-    synchronous_master = False
-    random.seed(args.seed if args.seed is not None else int(time.time()))
-
     print(__doc__)
 
     try:
 
-        client.load_world('Town05')
-        client.reload_world()
-
-        world = client.get_world()
-
-        traffic_manager = client.get_trafficmanager(args.tm_port)
-        traffic_manager.set_global_distance_to_leading_vehicle(1.0)
-        if args.hybrid:
-            traffic_manager.set_hybrid_physics_mode(True)
-        if args.seed is not None:
-            traffic_manager.set_random_device_seed(args.seed)
-
-        if args.sync:
-            settings = world.get_settings()
-            traffic_manager.set_synchronous_mode(True)
-            if not settings.synchronous_mode:
-                synchronous_master = True
-                settings.synchronous_mode = True
-                settings.fixed_delta_seconds = 0.05
-                world.apply_settings(settings)
-            else:
-                synchronous_master = False
-
-        blueprints = world.get_blueprint_library().filter(args.filterv)
-        blueprintsWalkers = world.get_blueprint_library().filter(args.filterw)
-
-        if args.safe:
-            blueprints = [x for x in blueprints if int(x.get_attribute('number_of_wheels')) == 4]
-            blueprints = [x for x in blueprints if not x.id.endswith('isetta')]
-            blueprints = [x for x in blueprints if not x.id.endswith('carlacola')]
-            blueprints = [x for x in blueprints if not x.id.endswith('cybertruck')]
-            blueprints = [x for x in blueprints if not x.id.endswith('t2')]
-
-        blueprints = sorted(blueprints, key=lambda bp: bp.id)
-
-        spawn_points = world.get_map().get_spawn_points()
-        number_of_spawn_points = len(spawn_points)
-
-        if args.number_of_vehicles < number_of_spawn_points:
-            random.shuffle(spawn_points)
-        elif args.number_of_vehicles > number_of_spawn_points:
-            msg = 'requested %d vehicles, but could only find %d spawn points'
-            logging.warning(msg, args.number_of_vehicles, number_of_spawn_points)
-            args.number_of_vehicles = number_of_spawn_points
-
-        # @todo cannot import these directly.
-        SpawnActor = carla.command.SpawnActor
-        SetAutopilot = carla.command.SetAutopilot
-        SetVehicleLightState = carla.command.SetVehicleLightState
-        FutureActor = carla.command.FutureActor
-
-        # --------------
-        # Spawn vehicles
-        # --------------
-        batch = []
-        for n, transform in enumerate(spawn_points):
-            if n >= args.number_of_vehicles:
-                break
-            blueprint = random.choice(blueprints)
-            if blueprint.has_attribute('color'):
-                color = random.choice(blueprint.get_attribute('color').recommended_values)
-                blueprint.set_attribute('color', color)
-            if blueprint.has_attribute('driver_id'):
-                driver_id = random.choice(blueprint.get_attribute('driver_id').recommended_values)
-                blueprint.set_attribute('driver_id', driver_id)
-            blueprint.set_attribute('role_name', 'autopilot')
-
-            # prepare the light state of the cars to spawn
-            light_state = vls.NONE
-            if args.car_lights_on:
-                light_state = vls.Position | vls.LowBeam | vls.LowBeam
-
-            # spawn the cars and set their autopilot and light state all together
-            batch.append(SpawnActor(blueprint, transform)
-                         .then(SetAutopilot(FutureActor, True, traffic_manager.get_port()))
-                         .then(SetVehicleLightState(FutureActor, light_state)))
-
-        for response in client.apply_batch_sync(batch, synchronous_master):
-            if response.error:
-                logging.error(response.error)
-            else:
-                vehicles_list.append(response.actor_id)
-
-        # -------------
-        # Spawn Walkers
-        # -------------
-        # some settings
-        percentagePedestriansRunning = 0.0  # how many pedestrians will run
-        percentagePedestriansCrossing = 0.0  # how many pedestrians will walk through the road
-        # 1. take all the random locations to spawn
-        spawn_points = []
-        for i in range(args.number_of_walkers):
-            spawn_point = carla.Transform()
-            loc = world.get_random_location_from_navigation()
-            if (loc != None):
-                spawn_point.location = loc
-                spawn_points.append(spawn_point)
-        # 2. we spawn the walker object
-        batch = []
-        walker_speed = []
-        for spawn_point in spawn_points:
-            walker_bp = random.choice(blueprintsWalkers)
-            # set as not invincible
-            if walker_bp.has_attribute('is_invincible'):
-                walker_bp.set_attribute('is_invincible', 'false')
-            # set the max speed
-            if walker_bp.has_attribute('speed'):
-                if (random.random() > percentagePedestriansRunning):
-                    # walking
-                    walker_speed.append(walker_bp.get_attribute('speed').recommended_values[1])
-                else:
-                    # running
-                    walker_speed.append(walker_bp.get_attribute('speed').recommended_values[2])
-            else:
-                print("Walker has no speed")
-                walker_speed.append(0.0)
-            batch.append(SpawnActor(walker_bp, spawn_point))
-        results = client.apply_batch_sync(batch, True)
-        walker_speed2 = []
-        for i in range(len(results)):
-            if results[i].error:
-                logging.error(results[i].error)
-            else:
-                walkers_list.append({"id": results[i].actor_id})
-                walker_speed2.append(walker_speed[i])
-        walker_speed = walker_speed2
-        # 3. we spawn the walker controller
-        batch = []
-        walker_controller_bp = world.get_blueprint_library().find('controller.ai.walker')
-        for i in range(len(walkers_list)):
-            batch.append(SpawnActor(walker_controller_bp, carla.Transform(), walkers_list[i]["id"]))
-        results = client.apply_batch_sync(batch, True)
-        for i in range(len(results)):
-            if results[i].error:
-                logging.error(results[i].error)
-            else:
-                walkers_list[i]["con"] = results[i].actor_id
-        # 4. we put altogether the walkers and controllers id to get the objects from their id
-        for i in range(len(walkers_list)):
-            all_id.append(walkers_list[i]["con"])
-            all_id.append(walkers_list[i]["id"])
-        all_actors = world.get_actors(all_id)
-
-        # wait for a tick to ensure client receives the last transform of the walkers we have just created
-        if not args.sync or not synchronous_master:
-            world.wait_for_tick()
-        else:
-            world.tick()
-
-        # 5. initialize each controller and set target to walk to (list is [controler, actor, controller, actor ...])
-        # set how many pedestrians can cross the road
-        world.set_pedestrians_cross_factor(percentagePedestriansCrossing)
-        for i in range(0, len(all_id), 2):
-            # start walker
-            all_actors[i].start()
-            # set walk to random point
-            all_actors[i].go_to_location(world.get_random_location_from_navigation())
-            # max speed
-            all_actors[i].set_max_speed(float(walker_speed[int(i / 2)]))
-
-        print('spawned %d vehicles and %d walkers, press Ctrl+C to exit.' % (len(vehicles_list), len(walkers_list)))
-
-        # example of how to use parameters
-        traffic_manager.global_percentage_speed_difference(30.0)
-
         game_loop(args)
-
-        while True:
-            if args.sync and synchronous_master:
-                world.tick()
-            else:
-                world.wait_for_tick()
 
     except KeyboardInterrupt:
         print('\nCancelled by user. Bye!')
 
-    finally:
-
-        if args.sync and synchronous_master:
-            settings = world.get_settings()
-            settings.synchronous_mode = False
-            settings.fixed_delta_seconds = None
-            world.apply_settings(settings)
-
-        print('\ndestroying %d vehicles' % len(vehicles_list))
-        client.apply_batch([carla.command.DestroyActor(x) for x in vehicles_list])
-
-        # stop walker controllers (list is [controller, actor, controller, actor ...])
-        for i in range(0, len(all_id), 2):
-            all_actors[i].stop()
-
-        print('\ndestroying %d walkers' % len(walkers_list))
-        client.apply_batch([carla.command.DestroyActor(x) for x in all_id])
-
-        time.sleep(0.5)
-
-
-class TestCustomizedEnvironment(unittest.TestCase):
-    def test(self):
-        try:
-            main()
-        except KeyboardInterrupt:
-            pass
-        finally:
-            print('\ndone.')
-
 
 if __name__ == '__main__':
-    unittest.main()
+
+    main()

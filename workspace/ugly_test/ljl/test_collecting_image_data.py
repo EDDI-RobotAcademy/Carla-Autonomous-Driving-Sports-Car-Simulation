@@ -532,7 +532,7 @@ class HUD(object):
         collision = [colhist[x + self.frame - 200] for x in range(0, 200)]
         max_col = max(1.0, max(collision))
         collision = [x / max_col for x in collision]
-        vehicles = world.world.get_actors().filter('vehicle.*')
+        vehicles = world.world.get_actors().filter('vehicle.tesla.model3')
         self._info_text = [
             'Server:  % 16.0f FPS' % self.server_fps,
             'Client:  % 16.0f FPS' % clock.get_fps(),
@@ -900,9 +900,10 @@ class CameraManager(object):
         Attachment = carla.AttachmentType
         self._camera_transforms = [
             (carla.Transform(carla.Location(x=-5.5, z=2.5), carla.Rotation(pitch=8.0)), Attachment.Rigid),
+            (carla.Transform(carla.Location(x=-4, z=2.5), carla.Rotation(pitch=1.5, yaw=-90)), Attachment.Rigid),
             (carla.Transform(carla.Location(x=1.6, z=1.7)), Attachment.Rigid),
             (carla.Transform(carla.Location(x=5.5, y=1.5, z=1.5)), Attachment.Rigid),
-            (carla.Transform(carla.Location(x=-8.0, z=6.0), carla.Rotation(pitch=6.0)), Attachment.Rigid),
+            (carla.Transform(carla.Location(z=8.0), carla.Rotation(pitch=-90.0)), Attachment.Rigid),
             (carla.Transform(carla.Location(x=-1, y=-bound_y, z=0.5)), Attachment.Rigid)]
         self.transform_index = 1
         self.sensors = [
@@ -1082,7 +1083,7 @@ def game_loop(args):
             pygame.HWSURFACE | pygame.DOUBLEBUF)
 
         hud = HUD(args.width, args.height)
-        world = World(client.get_world(), hud, args)
+        world = World(client.load_world('Town05'), hud, args)
         controller = KeyboardControl(world, args.autopilot)
 
         clock = pygame.time.Clock()
@@ -1141,8 +1142,8 @@ def main():
     argparser.add_argument(
         '--filter',
         metavar='PATTERN',
-        default='vehicle.*',
-        help='actor filter (default: "vehicle.*")')
+        default='vehicle.tesla.model3',
+        help='actor filter (default: "vehicle.tesla.model3")')
     argparser.add_argument(
         '--rolename',
         metavar='NAME',

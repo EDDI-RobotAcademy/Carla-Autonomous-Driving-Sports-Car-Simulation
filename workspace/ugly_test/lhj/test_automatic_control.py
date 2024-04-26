@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-
+# -*- coding: utf-8 -*-
 # Copyright (c) 2018 Intel Labs.
 # authors: German Ros (german.ros@intel.com)
 #
@@ -146,7 +146,7 @@ class World(object):
                 sys.exit(1)
             spawn_points = self.map.get_spawn_points()
             #spawn_point = random.choice(spawn_points) if spawn_points else carla.Transform()
-            spawn_point = carla.Transform(carla.Location(x=0, y=0, z=3), carla.Rotation())
+            spawn_point = carla.Transform(carla.Location(x=27.3, y=-105, z=2), carla.Rotation(yaw=90))
             self.player = self.world.try_spawn_actor(blueprint, spawn_point)
         # Set up the sensors.
         self.collision_sensor = CollisionSensor(self.player, self.hud)
@@ -670,6 +670,7 @@ class CameraManager(object):
 def game_loop(args):
     """ Main loop for agent"""
 
+    global destination_point
     pygame.init()
     pygame.font.init()
     world = None
@@ -707,12 +708,13 @@ def game_loop(args):
             else:
                 destination = spawn_points[1].location
 
-            destination_point = carla.Location(x=24.3, y=-25, z=2)
+            destination_point = carla.Location(x=25.3, y=-25, z=2)
             agent.set_destination(agent.vehicle.get_location(), destination_point, clean=True)
 
         clock = pygame.time.Clock()
 
         while True:
+
             clock.tick_busy_loop(60)
             if controller.parse_events():
                 return
@@ -740,23 +742,43 @@ def game_loop(args):
                 world.tick(clock)
                 world.render(display)
                 pygame.display.flip()
-
+                a=0
                 # Set new destination when target has been reached
-                #if len(agent.get_local_planner().waypoints_queue) < num_min_waypoints and args.loop:
-                #    agent.reroute(spawn_points)
-                #    tot_target_reached += 1
-                #    world.hud.notification("The target has been reached " +
-                #                           str(tot_target_reached) + " times.", seconds=4.0)
+                if len(agent.get_local_planner().waypoints_queue) < num_min_waypoints and args.loop:
+                    world.player.apply_control(carla.VehicleControl(throttle=0, steer=-1.0, brake=1))
+                    #agent.reroute(spawn_points)
+                    # tot_target_reached += 1
+                    # world.hud.notification("The target has been reached " +
+                    #                        str(tot_target_reached) + " times.", seconds=4.0)
 
-                #elif len(agent.get_local_planner().waypoints_queue) == 0 and not args.loop:
-                #    print("Target reached, mission accomplished...")
-                #    break
+
+
+
+
+                elif len(agent.get_local_planner().waypoints_queue) == 0 and not args.loop:
+
+                    print("Target reached, mission accomplished...")
+                    a=a+1
+                    # control.throttle = 0
+                    #
+                    # control.brake = 1.0  # 전부 브레이크를 밟아서 정지합니다.
+                    #
+                    # world.player.apply_control(control)
+                    control = carla.VehicleControl()  # 정지 제어 객체 생성
+                    control.throttle = 0  # 가속도를 0으로 설정하여 정지
+                    control.brake = 1.0  # 브레이크를 100%로 설정하여 정지
+
+                    world.player.apply_control(control)  # 정지 제어를 적용
+
+                    # 루프를 종료하지 않고 계속해서 정지 상태로 유지합니다.
 
                 speed_limit = world.player.get_speed_limit()
                 agent.get_local_planner().set_speed(speed_limit)
-
-                control = agent.run_step()
+                if a==0:
+                    control = agent.run_step()
                 world.player.apply_control(control)
+                # if agent.vehicle.get_location()==destination_point:
+                #     world.player.apply_control(carla.VehicleControl(throttle=0, steer=-1.0, brake=1))
 
     finally:
         if world is not None:
@@ -783,8 +805,8 @@ def main():
     argparser.add_argument(
         '--host',
         metavar='H',
-        default='192.168.20.36',
-        help='IP of the host server (default: 192.168.20.36)')
+        default='127.0.0.1',
+        help='IP of the host server (default: 127.0.0.1)')
     argparser.add_argument(
         '-p', '--port',
         metavar='P',
