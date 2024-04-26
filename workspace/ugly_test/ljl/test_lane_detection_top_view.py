@@ -1083,6 +1083,11 @@ class LaneDetector:
         self.camera_image = camera_image
         # self.new_height, self.new_width = self.camera_image.shape[:2]
 
+        # manage detected lines
+        self.left_space_line = []
+        self.right_space_line = []
+
+
     def min_max_points(self, image, lines):
         line1_fit, line2_fit, line3_fit, line4_fit, line5_fit, line6_fit = [], [], [], [], [], []
         for line in lines:
@@ -1234,6 +1239,10 @@ class LaneDetector:
             left_line1 = np.array([left_line1_min[0], left_line1_y1_average, left_line1_max[2], left_line1_y2_average])
             left_line2 = np.array([left_line2_min[0], left_line2_y1_average, left_line2_max[2], left_line2_y2_average])
 
+            self.left_space_line = np.array([left_line1, left_line2])
+            # print(len(self.left_space_line))
+
+
             return np.array([left_line1, left_line2])
 
 
@@ -1245,6 +1254,8 @@ class LaneDetector:
             left_line1_y2_average = (left_line1_max[3] + left_line1_min[3]) / 2
 
             left_line1 = np.array([left_line1_min[0], left_line1_y1_average, left_line1_max[2], left_line1_y2_average])
+            self.left_space_line = np.array([left_line1])
+            # print(len(self.left_space_line))
 
             return np.array([left_line1])
 
@@ -1256,8 +1267,38 @@ class LaneDetector:
             left_line2_y2_average = (left_line2_max[3] + left_line2_min[3]) / 2
 
             left_line2 = np.array([left_line2_min[0], left_line2_y1_average, left_line2_max[2], left_line2_y2_average])
+            self.left_space_line = np.array([left_line2])
+            # print(len(self.left_space_line))
 
             return np.array([left_line2])
+
+
+    def left_lines_distance_ratio(self, image, line):
+
+        if len(line) == 2:
+            image_height = image.shape[0]
+            distance_lines = line[1][1] - line[0][1]
+            distance_ratio = distance_lines / float(image_height)
+
+            # print("image height: ", image_height)
+            # print("distance line: ", distance_lines)
+            # print("distance ratio:", distance_ratio)
+
+            return distance_ratio
+
+        else:
+            return 0
+
+
+    def parking_space_detection(self, distance_ratio):
+        if distance_ratio > 0.29:
+            print("Parking available!")
+            return True
+
+        else:
+            print("No parking available!")
+            return False
+
 
 
     def right_line_points(self, image, lines):
@@ -1526,6 +1567,8 @@ class LaneDetector:
         if left_lines is not None:
             # left_line_point = self.left_line_points(lane_image, left_lines)
             left_line_point = self.left_line_points(cropped_image_left, left_lines)
+            distance_ratio = self.left_lines_distance_ratio(cropped_image_left, self.left_space_line)
+            self.parking_space_detection(distance_ratio)
 
             if left_line_point is not None:
                 left_line_image = self.display_left_lines(lane_image, left_line_point)
@@ -1567,7 +1610,7 @@ class LaneDetector:
         # cv2.imshow('polylines', self.roi_image(combined_image))
         # cv2.imshow('left_roi_image', self.left_roi_image(combined_image))
         cv2.imshow('combined_left_image', self.left_roi_image(combined_left_image))
-        cv2.imshow('combined_right_image', self.right_roi_image(combined_right_image))
+        # cv2.imshow('combined_right_image', self.right_roi_image(combined_right_image))
         # cv2.imshow('edges', canny_image)
         cv2.waitKey(1)
 
