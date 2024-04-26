@@ -55,6 +55,7 @@ try:
     from pygame.locals import K_DOWN
     from pygame.locals import K_ESCAPE
     from pygame.locals import K_F1
+    from pygame.locals import K_F2
     from pygame.locals import K_LEFT
     from pygame.locals import K_PERIOD
     from pygame.locals import K_RIGHT
@@ -66,6 +67,7 @@ try:
     from pygame.locals import K_b
     from pygame.locals import K_c
     from pygame.locals import K_d
+    from pygame.locals import K_e
     from pygame.locals import K_g
     from pygame.locals import K_h
     from pygame.locals import K_i
@@ -192,6 +194,7 @@ class World(object):
             sys.exit(1)
         self.hud = hud
         self.player = None
+        self.parked_vehicles = []
         self.collision_sensor = None
         self.lane_invasion_sensor = None
         self.gnss_sensor = None
@@ -223,6 +226,9 @@ class World(object):
             carla.MapLayer.Walls,
             carla.MapLayer.All
         ]
+        self.parking_control = None
+        self.parking_break = None
+        self.parking_relocation_y = 0
 
     def restart(self):
         self.player_max_speed = 1.589
@@ -322,6 +328,67 @@ class World(object):
             self.lidar_sensor = None
             self.hud.notification('LiDAR Off')
 
+    def toggle_parked_vehicles(self):
+        if not self.parked_vehicles:
+            parked_locations = [
+                carla.Transform(carla.Location(x=3.7, y=-35.5, z=0.5), carla.Rotation(yaw=180)),
+                carla.Transform(carla.Location(x=3.7, y=-32.7, z=0.5), carla.Rotation(yaw=180)),
+                carla.Transform(carla.Location(x=3.7, y=-29.9, z=0.5), carla.Rotation(yaw=180)),
+                carla.Transform(carla.Location(x=3.7, y=-27.1, z=0.5), carla.Rotation(yaw=180)),
+                carla.Transform(carla.Location(x=-7, y=-38.3, z=0.5)),
+                carla.Transform(carla.Location(x=-7, y=-29.9, z=0.5)),
+                carla.Transform(carla.Location(x=-7, y=-27.1, z=0.5)),
+            ]
+            blueprint = random.choice(self.world.get_blueprint_library().filter('vehicle.tesla.model3'))
+            for location in parked_locations:
+                v = self.world.try_spawn_actor(blueprint, location)
+                if v is not None:
+                    self.parked_vehicles.append(v)
+        else:
+            for v in self.parked_vehicles:
+                v.destroy()
+                self.parked_vehicles = []
+
+    def fix_player_location(self):
+        self.hud.notification('Fixing location based on LiDAR data')
+        # moving north direction decreases y value
+        relocation_index = 0
+        reverse = False
+        current_location_y = self.player.get_location().y
+        target_location_y = 0
+
+        # analyze direction based on data
+        with open('data.txt', 'r+') as f:
+            relocation_index = float(f.readlines()[0])
+            if relocation_index < 0:
+                reverse = True
+
+
+        # check compass and move
+        compass = self.imu_sensor.compass
+        if compass > 355 or compass < 5:  # north
+            target_location_y = current_location_y - relocation_index
+        elif 175 < compass < 185:  # south
+            target_location_y = current_location_y + relocation_index
+        else:
+            print('The player is too tilted!')
+            return
+
+        if int(relocation_index) == -4444:
+            print('The player should move position!')
+            return
+
+        control = carla.VehicleControl(throttle=0.5, steer=0.0, reverse=reverse)
+        self.parking_control = control
+        self.parking_relocation_y = target_location_y
+
+        vehicle_name = str(get_actor_display_name(self.player))
+        print(vehicle_name)
+        if vehicle_name == 'Tesla Model3':
+            self.parking_control = carla.VehicleControl(throttle=0.3, steer=0.0, reverse=reverse)
+
+        print('moving to {}'.format(self.parking_relocation_y))
+
     def tick(self, clock):
         self.hud.tick(self, clock)
 
@@ -416,6 +483,10 @@ class KeyboardControl(object):
                     world.toggle_los()
                 elif event.key == K_y:
                     world.toggle_lidar()
+                elif event.key == K_e:
+                    world.toggle_parked_vehicles()
+                elif event.key == K_F2:
+                    world.fix_player_location()
                 elif event.key == K_BACKQUOTE:
                     world.camera_manager.next_sensor()
                 elif event.key == K_n:
@@ -1075,7 +1146,7 @@ class LidarSensor(object):
         world = self._parent.get_world()
         bp = world.get_blueprint_library().find('sensor.lidar.ray_cast')
         bp.set_attribute('channels', '32')
-        bp.set_attribute('points_per_second', '90000')
+        bp.set_attribute('points_per_second', '96000')
         bp.set_attribute('rotation_frequency', '30')
         bp.set_attribute('range', '15')
         self.sensor = world.spawn_actor(bp, self.sensor_transform, attach_to=self._parent)
@@ -1290,6 +1361,8 @@ def game_loop(args):
 
         clock = pygame.time.Clock()
 
+        player_moving = False
+
         # map = world.world.get_map()
         # vehicle = world.player
 
@@ -1303,6 +1376,18 @@ def game_loop(args):
                 return
             world.tick(clock)
             world.render(display)
+
+            if world.parking_control is not None:
+                world.player.apply_control(world.parking_control)
+                player_moving = True
+
+            if abs(world.player.get_location().y - world.parking_relocation_y) < 0.15 and player_moving:
+                world.player.apply_control(carla.VehicleControl(throttle=0.0, steer=0.0, brake=1.0, reverse=True))
+                if world.parking_control is not None:
+                    world.parking_control = None
+                if world.player.get_velocity() == carla.Vector3D(0, 0, 0):
+                    player_moving = False
+
             # world.camera_manager.show_tiled_view()
 
             # current_w = map.get_waypoint(
@@ -1387,7 +1472,7 @@ def main():
     argparser.add_argument(
         '--filter',
         metavar='PATTERN',
-        default='vehicle.*',
+        default='vehicle.tesla.model3',
         help='actor filter (default: "vehicle.*")')
     argparser.add_argument(
         '--rolename',
