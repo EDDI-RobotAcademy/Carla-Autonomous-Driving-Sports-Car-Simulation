@@ -72,44 +72,48 @@ from agents.navigation.basic_agent import BasicAgent  # pylint: disable=import-e
 def move_to_init_parking(self):
     time.sleep(2)
     while True:
-        if self.get_transform().rotation.yaw < 89.5:
-            self.apply_control(
+        if self.vehicle.get_transform().rotation.yaw < 89.5:
+            self.vehicle.apply_control(
                 carla.VehicleControl(throttle=0.0, steer=0.0, brake=1.0, reverse=True))
             break
-        if self.get_location().x < 19.0:
-            self.apply_control(
-                carla.VehicleControl(throttle=0.3, steer=-0.5, brake=0.0, reverse=False))
+        if self.vehicle.get_location().x < 19.0:
+            self.vehicle.apply_control(
+                carla.VehicleControl(throttle=0.2, steer=-0.5, brake=0.0, reverse=False))
+            print(self.vehicle.get_transform())
             continue
-        self.apply_control(
-            carla.VehicleControl(throttle=0.3, steer=0.5, brake=0.0))
-        print(self.get_location())
-    time.sleep(1)
+        self.vehicle.apply_control(
+            carla.VehicleControl(throttle=0.2, steer=0.5, brake=0.0))
+        print(self.vehicle.get_transform())
+
+
 def park(self):
     while True:
-        self.apply_control(carla.VehicleControl(throttle=0.3, steer=0.0, brake=0.0, reverse=False))
-        print(self.get_location())
-        if self.get_location().y > -20:
-            self.apply_control(carla.VehicleControl(throttle=0.0, steer=0.0, brake=1.0, reverse=False))
+        self.vehicle.apply_control(carla.VehicleControl(throttle=0.2, steer=0.0, brake=0.0, reverse=False))
+        print(self.vehicle.get_location())
+        if self.vehicle.get_location().y > -20:
+            self.vehicle.apply_control(carla.VehicleControl(throttle=0.0, steer=0.0, brake=1.0, reverse=False))
             break
     while True:
-        self.apply_control(carla.VehicleControl(throttle=0.2, steer=0.3, brake=0.0, reverse=False))
-        print(self.get_location())
-        if self.get_transform().rotation.yaw > 179.5:
-            self.apply_control(carla.VehicleControl(throttle=0.0, steer=0.0, brake=1.0, reverse=False))
+        self.vehicle.apply_control(carla.VehicleControl(throttle=0.2, steer=0.3, brake=0.0, reverse=False))
+        print(self.vehicle.get_transform())
+        if abs(self.vehicle.get_transform().rotation.yaw) > 179:
+            self.vehicle.apply_control(carla.VehicleControl(throttle=0.0, steer=0.0, brake=1.0, reverse=False))
             break
     while True:
-        self.apply_control(carla.VehicleControl(throttle=0.1, steer=0.3, brake=0.0, reverse=False))
-        print(self.get_location())
-        print(self.get_transform().rotation.yaw)
-        if abs(self.get_transform().rotation.yaw) < 89.5:
-            self.apply_control(carla.VehicleControl(throttle=0.0, steer=0.0, brake=1.0, reverse=False))
+        self.vehicle.apply_control(carla.VehicleControl(throttle=0.1, steer=0.3, brake=0.0, reverse=False))
+        print(self.vehicle.get_transform())
+        if abs(self.vehicle.get_transform().rotation.yaw) < 89.5:
+            self.vehicle.apply_control(carla.VehicleControl(throttle=0.0, steer=0.0, brake=1.0, reverse=False))
             break
     while True:
-        self.apply_control(carla.VehicleControl(throttle=0.1, steer=0.0, brake=0.0, reverse=False))
-        if self.get_location().y < -35:
-            self.apply_control(carla.VehicleControl(throttle=0.0, steer=0.0, brake=1.0, reverse=False))
+        self.vehicle.apply_control(carla.VehicleControl(throttle=0.1, steer=0.0, brake=0.0, reverse=False))
+        print(self.vehicle.get_transform())
+        if self.vehicle.get_location().y < -35:
+            self.vehicle.apply_control(carla.VehicleControl(throttle=0.0, steer=0.0, brake=1.0, reverse=False))
             time.sleep(2)
             break
+
+
 def find_weather_presets():
     """Method to find weather presets"""
     rgx = re.compile('.+?(?:(?<=[a-z])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])|$)')
@@ -750,7 +754,7 @@ def game_loop(args):
             else:
                 destination = spawn_points[1].location
 
-            destination_point = carla.Location(x=20, y=-25, z=2)
+            destination_point = carla.Location(x=20, y=-30, z=2)
             agent.set_destination(agent.vehicle.get_location(), destination_point, clean=True)
 
         clock = pygame.time.Clock()
@@ -825,8 +829,8 @@ def game_loop(args):
                         control = agent.run_step()
                     world.player.apply_control(control)
                     if a==1:
-                        move_to_init_parking(world.player)
-                        park(world.player)
+                        move_to_init_parking(agent)
+                        park(agent)
                     # if agent.vehicle.get_location()==destination_point:
                     #     world.player.apply_control(carla.VehicleControl(throttle=0, steer=-1.0, brake=1))
                     #world.player.set_autopilot(False)이거는 나중에 일단 생각해보자
