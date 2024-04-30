@@ -48,6 +48,10 @@ try:
         'win-amd64' if os.name == 'nt' else 'linux-x86_64'))[0])
 except IndexError:
     pass
+try:
+    sys.path.append("/opt/carla-simulator/PythonAPI/carla")
+except IndexError:
+    pass
 
 # ==============================================================================
 # -- Add PythonAPI for release mode --------------------------------------------
