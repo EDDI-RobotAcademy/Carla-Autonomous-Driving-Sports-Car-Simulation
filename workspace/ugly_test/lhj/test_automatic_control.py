@@ -22,6 +22,8 @@ import re
 import sys
 import weakref
 
+import time
+
 try:
     import pygame
     from pygame.locals import KMOD_CTRL
@@ -67,7 +69,47 @@ from agents.navigation.basic_agent import BasicAgent  # pylint: disable=import-e
 # -- Global functions ----------------------------------------------------------
 # ==============================================================================
 
-
+def move_to_init_parking(self):
+    time.sleep(2)
+    while True:
+        if self.get_transform().rotation.yaw < 89.5:
+            self.apply_control(
+                carla.VehicleControl(throttle=0.0, steer=0.0, brake=1.0, reverse=True))
+            break
+        if self.get_location().x < 19.0:
+            self.apply_control(
+                carla.VehicleControl(throttle=0.3, steer=-0.5, brake=0.0, reverse=False))
+            continue
+        self.apply_control(
+            carla.VehicleControl(throttle=0.3, steer=0.5, brake=0.0))
+        print(self.get_location())
+    time.sleep(1)
+def park(self):
+    while True:
+        self.apply_control(carla.VehicleControl(throttle=0.3, steer=0.0, brake=0.0, reverse=False))
+        print(self.get_location())
+        if self.get_location().y > -20:
+            self.apply_control(carla.VehicleControl(throttle=0.0, steer=0.0, brake=1.0, reverse=False))
+            break
+    while True:
+        self.apply_control(carla.VehicleControl(throttle=0.2, steer=0.3, brake=0.0, reverse=False))
+        print(self.get_location())
+        if self.get_transform().rotation.yaw > 179.5:
+            self.apply_control(carla.VehicleControl(throttle=0.0, steer=0.0, brake=1.0, reverse=False))
+            break
+    while True:
+        self.apply_control(carla.VehicleControl(throttle=0.1, steer=0.3, brake=0.0, reverse=False))
+        print(self.get_location())
+        print(self.get_transform().rotation.yaw)
+        if abs(self.get_transform().rotation.yaw) < 89.5:
+            self.apply_control(carla.VehicleControl(throttle=0.0, steer=0.0, brake=1.0, reverse=False))
+            break
+    while True:
+        self.apply_control(carla.VehicleControl(throttle=0.1, steer=0.0, brake=0.0, reverse=False))
+        if self.get_location().y < -35:
+            self.apply_control(carla.VehicleControl(throttle=0.0, steer=0.0, brake=1.0, reverse=False))
+            time.sleep(2)
+            break
 def find_weather_presets():
     """Method to find weather presets"""
     rgx = re.compile('.+?(?:(?<=[a-z])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])|$)')
@@ -107,7 +149,7 @@ class World(object):
         self.camera_manager = None
         self._weather_presets = find_weather_presets()
         self._weather_index = 0
-        self._actor_filter = args.filter
+        self._actor_filter = ""
         self._gamma = args.gamma
         self.restart(args)
         self.world.on_tick(hud.on_world_tick)
@@ -124,7 +166,7 @@ class World(object):
             random.seed(args.seed)
 
         # Get a random blueprint.
-        blueprint = random.choice(self.world.get_blueprint_library().filter(self._actor_filter))
+        blueprint = random.choice(self.world.get_blueprint_library().filter('vehicle.tesla.model3'))
         blueprint.set_attribute('role_name', 'hero')
         if blueprint.has_attribute('color'):
             color = random.choice(blueprint.get_attribute('color').recommended_values)
@@ -146,7 +188,7 @@ class World(object):
                 sys.exit(1)
             spawn_points = self.map.get_spawn_points()
             #spawn_point = random.choice(spawn_points) if spawn_points else carla.Transform()
-            spawn_point = carla.Transform(carla.Location(x=27.3, y=-105, z=2), carla.Rotation(yaw=90))
+            spawn_point = carla.Transform(carla.Location(x=30, y=-105, z=2), carla.Rotation(yaw=90))
             self.player = self.world.try_spawn_actor(blueprint, spawn_point)
         # Set up the sensors.
         self.collision_sensor = CollisionSensor(self.player, self.hud)
@@ -708,11 +750,11 @@ def game_loop(args):
             else:
                 destination = spawn_points[1].location
 
-            destination_point = carla.Location(x=25.3, y=-25, z=2)
+            destination_point = carla.Location(x=20, y=-25, z=2)
             agent.set_destination(agent.vehicle.get_location(), destination_point, clean=True)
 
         clock = pygame.time.Clock()
-
+        a = 0
         while True:
 
             clock.tick_busy_loop(60)
@@ -742,43 +784,52 @@ def game_loop(args):
                 world.tick(clock)
                 world.render(display)
                 pygame.display.flip()
-                a=0
+
                 # Set new destination when target has been reached
-                if len(agent.get_local_planner().waypoints_queue) < num_min_waypoints and args.loop:
-                    world.player.apply_control(carla.VehicleControl(throttle=0, steer=-1.0, brake=1))
-                    #agent.reroute(spawn_points)
-                    # tot_target_reached += 1
-                    # world.hud.notification("The target has been reached " +
-                    #                        str(tot_target_reached) + " times.", seconds=4.0)
-
-
-
-
-
-                elif len(agent.get_local_planner().waypoints_queue) == 0 and not args.loop:
-
-                    print("Target reached, mission accomplished...")
-                    a=a+1
-                    # control.throttle = 0
-                    #
-                    # control.brake = 1.0  # 전부 브레이크를 밟아서 정지합니다.
-                    #
-                    # world.player.apply_control(control)
-                    control = carla.VehicleControl()  # 정지 제어 객체 생성
-                    control.throttle = 0  # 가속도를 0으로 설정하여 정지
-                    control.brake = 1.0  # 브레이크를 100%로 설정하여 정지
-
-                    world.player.apply_control(control)  # 정지 제어를 적용
-
-                    # 루프를 종료하지 않고 계속해서 정지 상태로 유지합니다.
-
-                speed_limit = world.player.get_speed_limit()
-                agent.get_local_planner().set_speed(speed_limit)
                 if a==0:
-                    control = agent.run_step()
-                world.player.apply_control(control)
-                # if agent.vehicle.get_location()==destination_point:
-                #     world.player.apply_control(carla.VehicleControl(throttle=0, steer=-1.0, brake=1))
+                    if len(agent.get_local_planner().waypoints_queue) < num_min_waypoints and args.loop:
+                        world.player.apply_control(carla.VehicleControl(throttle=0, steer=-1.0, brake=1))
+                        #agent.reroute(spawn_points)
+                        # tot_target_reached += 1
+                        # world.hud.notification("The target has been reached " +
+                        #                        str(tot_target_reached) + " times.", seconds=4.0)
+
+
+
+
+
+                    elif len(agent.get_local_planner().waypoints_queue) == 0 and not args.loop:
+
+
+                        print("Target reached, mission accomplished...")
+                        a=a+1
+                        # control.throttle = 0
+                        #
+                        # control.brake = 1.0  # 전부 브레이크를 밟아서 정지합니다.
+                        #
+                        # world.player.apply_control(control)
+
+                        control = carla.VehicleControl()  # 정지 제어 객체 생성
+                        control.throttle = 0  # 가속도를 0으로 설정하여 정지
+                        control.brake = 1.0  # 브레이크를 100%로 설정하여 정지
+
+                        world.player.apply_control(control)  # 정지 제어를 적용
+                        if control.throttle == 0:
+                            world.player.autopilot_enabled = False
+
+                        # 루프를 종료하지 않고 계속해서 정지 상태로 유지합니다.
+
+                    speed_limit = world.player.get_speed_limit()
+                    agent.get_local_planner().set_speed(speed_limit)
+                    if a==0:
+                        control = agent.run_step()
+                    world.player.apply_control(control)
+                    if a==1:
+                        move_to_init_parking(world.player)
+                        park(world.player)
+                    # if agent.vehicle.get_location()==destination_point:
+                    #     world.player.apply_control(carla.VehicleControl(throttle=0, steer=-1.0, brake=1))
+                    #world.player.set_autopilot(False)이거는 나중에 일단 생각해보자
 
     finally:
         if world is not None:
