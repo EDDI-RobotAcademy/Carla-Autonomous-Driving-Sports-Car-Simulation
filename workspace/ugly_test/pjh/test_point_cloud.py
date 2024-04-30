@@ -110,12 +110,17 @@ class TestPointCloud(unittest.TestCase):
     left_detection = False
     right_detection = False
 
+    x_extent = 2
     min_bound = (-9, -10, 0)
-    max_bound = (9, -6, 1.5)
+    max_bound = (9, min_bound[1] + x_extent, 1.5)
     ego_vehicle_box = o3d.geometry.AxisAlignedBoundingBox(min_bound=min_bound, max_bound=max_bound)
     ego_vehicle_box.color = (0, 1, 0)
 
     empty_space_box = None
+
+    bbox_objects = []
+
+    relocation_point_index = -1
 
     def test_basic_point_cloud(self):
         point_clouds = get_local_ply()
@@ -136,7 +141,7 @@ class TestPointCloud(unittest.TestCase):
         plane_model, road_inliers = pcd_2.segment_plane(distance_threshold=0.05, ransac_n=3, num_iterations=100)
         pcd_3 = pcd_2.select_by_index(road_inliers, invert=True)
 
-        clusterer = HDBSCAN(min_cluster_size=30)
+        clusterer = HDBSCAN(min_cluster_size=25)
         clusterer.fit(np.array(pcd_3.points))
         labels = clusterer.labels_
 
@@ -146,17 +151,7 @@ class TestPointCloud(unittest.TestCase):
         colors[labels < 0] = 0
         pcd_3.colors = o3d.utility.Vector3dVector(colors[:, :3])
 
-        bbox_objects = []
         indexes = pd.Series(range(len(labels))).groupby(labels, sort=False).apply(list).tolist()
-
-        # ego_vehicle_box_points = o3d.utility.Vector3dVector([[-4, -2, 0],
-        #                                                      [-4, -2, 1],
-        #                                                      [-4, 2, 1],
-        #                                                      [4, 2, 1],
-        #                                                      [4, -2, 0],
-        #                                                      [4, -2, 1],
-        #                                                      [-4, 2, 0],
-        #                                                      [4, 2, 0]])
 
         MAX_POINTS = 4000
         MIN_POINTS = 50
@@ -169,7 +164,7 @@ class TestPointCloud(unittest.TestCase):
                     bbox_object = sub_cloud.get_axis_aligned_bounding_box()
                     # bbox_object = sub_cloud.get_oriented_bounding_box()
                     bbox_object.color = (0, 0, 1)
-                    bbox_objects.append(bbox_object)
+                    self.bbox_objects.append(bbox_object)
                     print("ID: {}\n"
                           "center: {}\n"
                           "box points: {}"
@@ -192,6 +187,7 @@ class TestPointCloud(unittest.TestCase):
                 self.empty_space_box = o3d.geometry.AxisAlignedBoundingBox(min_bound=empty_space_box_min_bound,
                                                                            max_bound=empty_space_box_max_bound)
                 self.empty_space_box.color = (0.5, 0.3, 0.1)
+                self.relocation_point_index = self.empty_space_box.get_center()[1]
             elif not self.left_detection and self.right_detection:
                 print(
                     f'{Fore.RED}Left side of ego vehicle is empty space! (maybe a parking lot){Style.RESET_ALL}')
@@ -200,6 +196,7 @@ class TestPointCloud(unittest.TestCase):
                 self.empty_space_box = o3d.geometry.AxisAlignedBoundingBox(min_bound=empty_space_box_min_bound,
                                                                            max_bound=empty_space_box_max_bound)
                 self.empty_space_box.color = (0.5, 0.3, 0.1)
+                self.relocation_point_index = self.empty_space_box.get_center()[1]
                 print(
                     f'{Fore.RED}Left side of ego vehicle is empty space! (maybe a parking lot){Style.RESET_ALL}')
             elif not self.right_detection and self.left_detection:
@@ -210,11 +207,12 @@ class TestPointCloud(unittest.TestCase):
                 self.empty_space_box = o3d.geometry.AxisAlignedBoundingBox(min_bound=empty_space_box_min_bound,
                                                                            max_bound=empty_space_box_max_bound)
                 self.empty_space_box.color = (0.5, 0.3, 0.1)
+                self.relocation_point_index = self.empty_space_box.get_center()[1]
             else:
                 print(
                     f'{Fore.RED}Ego vehicle bounding box should be relocated! (no empty space currently){Style.RESET_ALL}')
-                updated_min_bound = (self.min_bound[0], self.min_bound[1] + 4, self.min_bound[2])
-                updated_max_bound = (self.max_bound[0], self.max_bound[1] + 4, self.max_bound[2])
+                updated_min_bound = (self.min_bound[0], self.min_bound[1] + self.x_extent, self.min_bound[2])
+                updated_max_bound = (self.max_bound[0], self.max_bound[1] + self.x_extent, self.max_bound[2])
                 self.min_bound = updated_min_bound
                 self.max_bound = updated_max_bound
                 updated_detection_box = o3d.geometry.AxisAlignedBoundingBox(min_bound=self.min_bound,
@@ -223,15 +221,17 @@ class TestPointCloud(unittest.TestCase):
                 self.ego_vehicle_box.color = (0, 1, 0)
                 self.left_detection = False
                 self.right_detection = False
+                self.bbox_objects.clear()
                 detection_loop()
 
         detection_loop()
 
-        print("Number of Bounding Box : ", len(bbox_objects))
+        print("Number of Bounding Box : ", len(self.bbox_objects))
+        print("Relocation Point Index : ", self.relocation_point_index)
 
         list_of_visuals = []
         list_of_visuals.append(pcd_3)
-        list_of_visuals.extend(bbox_objects)
+        list_of_visuals.extend(self.bbox_objects)
 
         range_min_xyz = (-80, -80, 0)
         range_max_xyz = (80, 80, 80)
@@ -248,8 +248,8 @@ class TestPointCloud(unittest.TestCase):
         vis.create_window()
 
         vis.add_geometry(pcd_3)
-        for j in range(len(bbox_objects)):
-            vis.add_geometry(bbox_objects[j])
+        for j in range(len(self.bbox_objects)):
+            vis.add_geometry(self.bbox_objects[j])
         vis.add_geometry(coord)
         vis.add_geometry(lineset_yz)
         vis.add_geometry(lineset_zx)

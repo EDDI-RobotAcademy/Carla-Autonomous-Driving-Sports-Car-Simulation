@@ -6,8 +6,9 @@
 *.jpeg
 *.png
 
-# exclude *.csv
+# exclude *.csv, *.txt
 *.csv
+*.txt
 
 # exclude .DS_Store
 *.DS_Store
