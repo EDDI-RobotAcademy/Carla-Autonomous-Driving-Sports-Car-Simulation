@@ -48,10 +48,10 @@ try:
         'win-amd64' if os.name == 'nt' else 'linux-x86_64'))[0])
 except IndexError:
     pass
-try:
-    sys.path.append("/opt/carla-simulator/PythonAPI/carla")
-except IndexError:
-    pass
+# try:
+#     sys.path.append("/opt/carla-simulator/PythonAPI/carla")
+# except IndexError:
+#     pass
 
 # ==============================================================================
 # -- Add PythonAPI for release mode --------------------------------------------
@@ -179,6 +179,7 @@ class World(object):
         if blueprint.has_attribute('color'):
             color = random.choice(blueprint.get_attribute('color').recommended_values)
             blueprint.set_attribute('color', color)
+
         # Spawn the player.
         print("Spawning the player")
         if self.player is not None:
@@ -189,14 +190,16 @@ class World(object):
             self.destroy()
             self.player = self.world.try_spawn_actor(blueprint, spawn_point)
 
+
         while self.player is None:
             if not self.map.get_spawn_points():
                 print('There are no spawn points available in your map/town.')
                 print('Please add some Vehicle Spawn Point to your UE4 scene.')
                 sys.exit(1)
             spawn_points = self.map.get_spawn_points()
-            #spawn_point = random.choice(spawn_points) if spawn_points else carla.Transform()
-            spawn_point = carla.Transform(carla.Location(x=30, y=-105, z=2), carla.Rotation(yaw=90))
+            # spawn_point = random.choice(spawn_points) if spawn_points else carla.Transform()
+            spawn_point = carla.Transform(carla.Location(x=31, y=-130, z=2), carla.Rotation(yaw=90))
+            # spawn_point = carla.Transform(carla.Location(x=-184.7, y=-39, z=2), carla.Rotation(yaw=-90))
             self.player = self.world.try_spawn_actor(blueprint, spawn_point)
         # Set up the sensors.
         self.collision_sensor = CollisionSensor(self.player, self.hud)
@@ -737,6 +740,12 @@ def game_loop(args):
 
         hud = HUD(args.width, args.height)
         world = World(client.get_world(), hud, args)
+        # traffic_manager = client.get_trafficmanager(args.port)
+        #traffic_manager.set_global_distance_to_leading_vehicle(1.0)
+
+        # if world.constant_velocity_enabled:
+        #     world.player.disable_constant_velocity()
+        #     world.constant_velocity_enabled = False
         controller = KeyboardControl(world)
 
         if args.agent == "Roaming":
@@ -785,6 +794,7 @@ def game_loop(args):
                 pygame.display.flip()
                 control = agent.run_step()
                 control.manual_gear_shift = False
+
                 world.player.apply_control(control)
             else:
                 agent.update_information()
@@ -794,6 +804,7 @@ def game_loop(args):
                 pygame.display.flip()
 
                 # Set new destination when target has been reached
+                # destination arrival status 로 명명 도착여부 판단
                 if a==0:
                     if len(agent.get_local_planner().waypoints_queue) < num_min_waypoints and args.loop:
                         world.player.apply_control(carla.VehicleControl(throttle=0, steer=-1.0, brake=1))
@@ -827,8 +838,8 @@ def game_loop(args):
 
                         # 루프를 종료하지 않고 계속해서 정지 상태로 유지합니다.
 
-                    speed_limit = world.player.get_speed_limit()
-                    agent.get_local_planner().set_speed(speed_limit)
+                    # speed_limit = world.player.get_speed_limit()
+                    # agent.get_local_planner().set_speed(speed_limit)
                     if a==0:
                         control = agent.run_step()
                     world.player.apply_control(control)
@@ -864,8 +875,8 @@ def main():
     argparser.add_argument(
         '--host',
         metavar='H',
-        default='127.0.0.1',
-        help='IP of the host server (default: 127.0.0.1)')
+        default='192.168.20.36',
+        help='IP of the host server (default: 192.168.20.36)')
     argparser.add_argument(
         '-p', '--port',
         metavar='P',
