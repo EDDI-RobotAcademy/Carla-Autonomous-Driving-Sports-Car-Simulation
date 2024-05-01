@@ -134,7 +134,7 @@ class TestEmptySpaceDetection(unittest.TestCase):
 
             # apply object detection algorithm by point cloud
             # todo: fix the hyper parameters to optimize the simulation
-            clusterer = HDBSCAN(min_cluster_size=20, min_samples=10, cluster_selection_epsilon=0.1)
+            clusterer = HDBSCAN(min_cluster_size=20)
             clusterer.fit(np.array(pcd_3.points))
             # labeling clusters with different color
             labels = clusterer.labels_
@@ -146,8 +146,8 @@ class TestEmptySpaceDetection(unittest.TestCase):
             indexes = pd.Series(range(len(labels))).groupby(labels, sort=False).apply(list).tolist()
 
             MAX_POINTS = 4000
-            MIN_POINTS = 100
-            DETECTIOM_MIN_POINTS = 10
+            MIN_POINTS = 30
+            DETECTIOM_MIN_POINTS = 5
 
             # Detect empty space by recursively exploring space
             def detection_loop():

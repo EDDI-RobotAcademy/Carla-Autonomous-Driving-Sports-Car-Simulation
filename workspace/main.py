@@ -367,6 +367,8 @@ class World(object):
                     self.parking_side = lines[1]
                     if relocation_index < 0:
                         reverse = True
+                    f.seek(0)
+                    f.truncate()
                 else:
                     print('No data!')
                     return
@@ -1229,6 +1231,11 @@ class CameraManager(object):
         self.transform_index = (self.transform_index + 1) % len(self._camera_transforms)
         self.set_sensor(self.index, notify=False, force_respawn=True)
 
+    def set_camera_with_option(self, transform_index, sensor_index):
+        self.transform_index = transform_index
+        self.index = sensor_index
+        self.toggle_camera()
+
     def set_sensor(self, index, notify=True, force_respawn=False):
         index = index % len(self.sensors)
         needs_respawn = True if self.index is None else \
@@ -1484,6 +1491,8 @@ class LaneDetector:
     def parking_space_detection(self, distance_ratio):
         if distance_ratio > 0.29:
             print("Parking available!")
+            print(self.left_space_line)
+            print(self.right_space_line)
             return True
 
         else:
@@ -1502,6 +1511,8 @@ class LaneDetector:
         height = image.shape[0]
         width = image.shape[1]
 
+        # rectangle points
+        # left low, right low, right high, left high
         polygons = np.array([
             [(int(0.1 * width), int(0.8 * height)), (int(0.4 * width), int(0.8 * height)),
              (int(0.4 * width), int(0.2 * height)), (int(0.1 * width), int(0.2 * height))]
@@ -1659,6 +1670,7 @@ def game_loop(args):
 
         player_moving = False
         empty_space_relocation_finished = False
+        camera_setting_for_line_detection = False
 
         while True:
             clock.tick_busy_loop(30)
@@ -1671,7 +1683,7 @@ def game_loop(args):
                 world.player.apply_control(world.parking_control)
                 player_moving = True
 
-            if abs(world.player.get_location().y - world.parking_relocation_position) < 0.02 and player_moving:
+            if abs(world.player.get_location().y - world.parking_relocation_position) < 0.07 and player_moving:
                 world.parking_break = True
                 world.parking_control = carla.VehicleControl(throttle=0.0, steer=0.0, brake=1.0, reverse=True)
 
@@ -1680,6 +1692,9 @@ def game_loop(args):
                     world.parking_control = None
                 player_moving = False
                 empty_space_relocation_finished = True
+                if not camera_setting_for_line_detection:
+                    world.camera_manager.set_camera_with_option(1, 5)
+                    camera_setting_for_line_detection = True
 
             global Camera_image
             if empty_space_relocation_finished:
