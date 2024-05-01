@@ -1088,81 +1088,81 @@ class LaneDetector:
         self.right_space_line = []
 
 
-    def min_max_points(self, image, lines):
-        line1_fit, line2_fit, line3_fit, line4_fit, line5_fit, line6_fit = [], [], [], [], [], []
-        for line in lines:
-            x1, y1, x2, y2 = line[0]
-            # print(line[0])
-
-            if x1 < 700 and x2 < 700:
-                if 490 < y1 < 550 and 490 < y2 < 550:
-                    line1_fit.append(np.array([x1, y1, x2, y2]))
-
-                elif 280 < y1 < 320 and 280 < y2 < 320:
-                    line2_fit.append(np.array([x1, y1, x2, y2]))
-
-                elif 50 < y1 < 90 and 50 < y2 < 90:
-                    line3_fit.append(np.array([x1, y1, x2, y2]))
-
-            else:
-                if 490 < y1 < 550 and 490 < y2 < 550:
-                    line4_fit.append(np.array([x1, y1, x2, y2]))
-
-                elif 280 < y1 < 320 and 280 < y2 < 320:
-                    line5_fit.append(np.array([x1, y1, x2, y2]))
-
-                elif 50 < y1 < 90 and 50 < y2 < 90:
-                    line6_fit.append(np.array([x1, y1, x2, y2]))
-
-            # self.plot_line(image, line[0])
-
-        if line1_fit and line2_fit and line3_fit and line4_fit and line5_fit and line6_fit:
-            line1_max = np.max(line1_fit, axis=0)
-            line2_max = np.max(line2_fit, axis=0)
-            line3_max = np.max(line3_fit, axis=0)
-            line4_max = np.max(line4_fit, axis=0)
-            line5_max = np.max(line5_fit, axis=0)
-            line6_max = np.max(line6_fit, axis=0)
-
-            line1_min = np.min(line1_fit, axis=0)
-            line2_min = np.min(line2_fit, axis=0)
-            line3_min = np.min(line3_fit, axis=0)
-            line4_min = np.min(line4_fit, axis=0)
-            line5_min = np.min(line5_fit, axis=0)
-            line6_min = np.min(line6_fit, axis=0)
-
-            line1 = np.array([line1_min[0], line1_max[1], line1_max[2], line1_max[3]])
-            line2 = np.array([line2_min[0], line2_max[1], line2_max[2], line2_max[3]])
-            line3 = np.array([line3_min[0], line3_max[1], line3_max[2], line3_max[3]])
-            line4 = np.array([line4_min[0], line4_max[1], line4_max[2], line4_max[3]])
-            line5 = np.array([line5_min[0], line5_max[1], line5_max[2], line5_max[3]])
-            line6 = np.array([line6_min[0], line6_max[1], line6_max[2], line6_max[3]])
-
-            return np.array([line1, line2, line3, line4, line5, line6])
+    # def min_max_points(self, image, lines):
+    #     line1_fit, line2_fit, line3_fit, line4_fit, line5_fit, line6_fit = [], [], [], [], [], []
+    #     for line in lines:
+    #         x1, y1, x2, y2 = line[0]
+    #         # print(line[0])
+    #
+    #         if x1 < 700 and x2 < 700:
+    #             if 490 < y1 < 550 and 490 < y2 < 550:
+    #                 line1_fit.append(np.array([x1, y1, x2, y2]))
+    #
+    #             elif 280 < y1 < 320 and 280 < y2 < 320:
+    #                 line2_fit.append(np.array([x1, y1, x2, y2]))
+    #
+    #             elif 50 < y1 < 90 and 50 < y2 < 90:
+    #                 line3_fit.append(np.array([x1, y1, x2, y2]))
+    #
+    #         else:
+    #             if 490 < y1 < 550 and 490 < y2 < 550:
+    #                 line4_fit.append(np.array([x1, y1, x2, y2]))
+    #
+    #             elif 280 < y1 < 320 and 280 < y2 < 320:
+    #                 line5_fit.append(np.array([x1, y1, x2, y2]))
+    #
+    #             elif 50 < y1 < 90 and 50 < y2 < 90:
+    #                 line6_fit.append(np.array([x1, y1, x2, y2]))
+    #
+    #         # self.plot_line(image, line[0])
+    #
+    #     if line1_fit and line2_fit and line3_fit and line4_fit and line5_fit and line6_fit:
+    #         line1_max = np.max(line1_fit, axis=0)
+    #         line2_max = np.max(line2_fit, axis=0)
+    #         line3_max = np.max(line3_fit, axis=0)
+    #         line4_max = np.max(line4_fit, axis=0)
+    #         line5_max = np.max(line5_fit, axis=0)
+    #         line6_max = np.max(line6_fit, axis=0)
+    #
+    #         line1_min = np.min(line1_fit, axis=0)
+    #         line2_min = np.min(line2_fit, axis=0)
+    #         line3_min = np.min(line3_fit, axis=0)
+    #         line4_min = np.min(line4_fit, axis=0)
+    #         line5_min = np.min(line5_fit, axis=0)
+    #         line6_min = np.min(line6_fit, axis=0)
+    #
+    #         line1 = np.array([line1_min[0], line1_max[1], line1_max[2], line1_max[3]])
+    #         line2 = np.array([line2_min[0], line2_max[1], line2_max[2], line2_max[3]])
+    #         line3 = np.array([line3_min[0], line3_max[1], line3_max[2], line3_max[3]])
+    #         line4 = np.array([line4_min[0], line4_max[1], line4_max[2], line4_max[3]])
+    #         line5 = np.array([line5_min[0], line5_max[1], line5_max[2], line5_max[3]])
+    #         line6 = np.array([line6_min[0], line6_max[1], line6_max[2], line6_max[3]])
+    #
+    #         return np.array([line1, line2, line3, line4, line5, line6])
 
     # def plot_line(self, image, line):
     #     x1, y1, x2, y2 = line
     #     plt.plot([x1, x2], [y1, y2], color='red')
 
-    def line_points(self, image, lines):
-        left_line1_point, left_line2_point, right_line1_point, right_line2_point = [], [], [], []
-        for line in lines:
-            x1, y1, x2, y2 = line[0]
-            # print(line[0])
-
-            if 60 < x1 < 700 and 60 < x2 < 700:
-                if 130 < y1 < 170 and 130 < y2 < 170:
-                    left_line1_point.append(np.array([x1, y1, x2, y2]))
-
-                elif 350 < y1 < 390 and 350 < y2 < 390:
-                    left_line2_point.append(np.array([x1, y1, x2, y2]))
-
-            else:
-                if 130 < y1 < 170 and 130 < y2 < 170:
-                    right_line1_point.append(np.array([x1, y1, x2, y2]))
-
-                elif 350 < y1 < 390 and 350 < y2 < 390:
-                    right_line2_point.append(np.array([x1, y1, x2, y2]))
+    # def line_points(self, image, lines):
+    #     left_line1_point, left_line2_point, right_line1_point, right_line2_point = [], [], [], []
+    #     for line in lines:
+    #         x1, y1, x2, y2 = line[0]
+    #         # print(line[0])
+    #
+    #         if 60 < x1 < 700 and 60 < x2 < 700:
+    #             if 130 < y1 < 170 and 130 < y2 < 170:
+    #                 left_line1_point.append(np.array([x1, y1, x2, y2]))
+    #
+    #             elif 350 < y1 < 390 and 350 < y2 < 390:
+    #                 left_line2_point.append(np.array([x1, y1, x2, y2]))
+    #
+    #         else:
+    #             if 130 < y1 < 170 and 130 < y2 < 170:
+    #                 right_line1_point.append(np.array([x1, y1, x2, y2]))
+    #
+    #             elif 350 < y1 < 390 and 350 < y2 < 390:
+    #                 right_line2_point.append(np.array([x1, y1, x2, y2]))
 
             # if x1 < image.shape[1]/2 and x2 < image.shape[1]/2:
             #     if image.shape[0] * 0.2 < y1 < image.shape[0] * 0.5 and image.shape[0] * 0.2 < y2 < image.shape[0] * 0.5:
@@ -1180,23 +1180,23 @@ class LaneDetector:
 
             # self.plot_line(image, line[0])
 
-        if left_line1_point and left_line2_point and right_line1_point and right_line2_point:
-            left_line1_max = np.max(left_line1_point, axis=0)
-            left_line2_max = np.max(left_line2_point, axis=0)
-            right_line1_max = np.max(right_line1_point, axis=0)
-            right_line2_max = np.max(right_line2_point, axis=0)
-
-            left_line1_min = np.min(left_line1_point, axis=0)
-            left_line2_min = np.min(left_line2_point, axis=0)
-            right_line1_min = np.min(right_line1_point, axis=0)
-            right_line2_min = np.min(right_line2_point, axis=0)
-
-            left_line1 = np.array([left_line1_min[0], left_line1_max[1], left_line1_max[2], left_line1_max[3]])
-            left_line2 = np.array([left_line2_min[0], left_line2_max[1], left_line2_max[2], left_line2_max[3]])
-            right_line1 = np.array([right_line1_min[0], right_line1_max[1], right_line1_max[2], right_line1_max[3]])
-            right_line2 = np.array([right_line2_min[0], right_line2_max[1], right_line2_max[2], right_line2_max[3]])
-
-            return np.array([left_line1, left_line2, right_line1, right_line2])
+        # if left_line1_point and left_line2_point and right_line1_point and right_line2_point:
+        #     left_line1_max = np.max(left_line1_point, axis=0)
+        #     left_line2_max = np.max(left_line2_point, axis=0)
+        #     right_line1_max = np.max(right_line1_point, axis=0)
+        #     right_line2_max = np.max(right_line2_point, axis=0)
+        #
+        #     left_line1_min = np.min(left_line1_point, axis=0)
+        #     left_line2_min = np.min(left_line2_point, axis=0)
+        #     right_line1_min = np.min(right_line1_point, axis=0)
+        #     right_line2_min = np.min(right_line2_point, axis=0)
+        #
+        #     left_line1 = np.array([left_line1_min[0], left_line1_max[1], left_line1_max[2], left_line1_max[3]])
+        #     left_line2 = np.array([left_line2_min[0], left_line2_max[1], left_line2_max[2], left_line2_max[3]])
+        #     right_line1 = np.array([right_line1_min[0], right_line1_max[1], right_line1_max[2], right_line1_max[3]])
+        #     right_line2 = np.array([right_line2_min[0], right_line2_max[1], right_line2_max[2], right_line2_max[3]])
+        #
+        #     return np.array([left_line1, left_line2, right_line1, right_line2])
 
     def left_line_points(self, image, lines):
         left_line1_point, left_line2_point = [], []
@@ -1273,34 +1273,6 @@ class LaneDetector:
             return np.array([left_line2])
 
 
-    def left_lines_distance_ratio(self, image, line):
-
-        if len(line) == 2:
-            image_height = image.shape[0]
-            distance_lines = line[1][1] - line[0][1]
-            distance_ratio = distance_lines / float(image_height)
-
-            # print("image height: ", image_height)
-            # print("distance line: ", distance_lines)
-            # print("distance ratio:", distance_ratio)
-
-            return distance_ratio
-
-        else:
-            return 0
-
-
-    def parking_space_detection(self, distance_ratio):
-        if distance_ratio > 0.29:
-            print("Parking available!")
-            return True
-
-        else:
-            print("No parking available!")
-            return False
-
-
-
     def right_line_points(self, image, lines):
         right_line1_point, right_line2_point = [], []
         for line in lines:
@@ -1340,6 +1312,8 @@ class LaneDetector:
             right_line1 = np.array([right_line1_min[0], right_line1_y1_average, right_line1_max[2], right_line1_y2_average])
             right_line2 = np.array([right_line2_min[0], right_line2_y1_average, right_line2_max[2], right_line2_y2_average])
 
+            self.right_space_line = np.array([right_line1, right_line2])
+
             return np.array([right_line1, right_line2])
 
 
@@ -1351,6 +1325,7 @@ class LaneDetector:
             right_line1_y2_average = (right_line1_max[3] + right_line1_min[3]) / 2
 
             right_line1 = np.array([right_line1_min[0], right_line1_y1_average, right_line1_max[2], right_line1_y2_average])
+            self.right_space_line = np.array([right_line1])
 
             return np.array([right_line1])
 
@@ -1363,8 +1338,52 @@ class LaneDetector:
             right_line2_y2_average = (right_line2_max[3] + right_line2_min[3]) / 2
 
             right_line2 = np.array([right_line2_min[0], right_line2_y1_average, right_line2_max[2], right_line2_y2_average])
+            self.right_space_line = np.array([right_line2])
 
             return np.array([right_line2])
+
+
+    def left_lines_distance_ratio(self, image, line):
+
+        if len(line) == 2:
+            image_height = image.shape[0]
+            distance_lines = line[1][1] - line[0][1]
+            distance_ratio = distance_lines / float(image_height)
+
+            # print("image height: ", image_height)
+            # print("distance line: ", distance_lines)
+            # print("distance ratio:", distance_ratio)
+
+            return distance_ratio
+
+        else:
+            return 0
+
+    def right_lines_distance_ratio(self, image, line):
+
+        if len(line) == 2:
+            image_height = image.shape[0]
+            distance_lines = line[1][1] - line[0][1]
+            distance_ratio = distance_lines / float(image_height)
+
+            # print("image height: ", image_height)
+            # print("distance line: ", distance_lines)
+            # print("distance ratio:", distance_ratio)
+
+            return distance_ratio
+
+        else:
+            return 0
+
+
+    def parking_space_detection(self, distance_ratio):
+        if distance_ratio > 0.29:
+            print("Parking available!")
+            return True
+
+        else:
+            print("No parking available!")
+            return False
 
 
     def canny(self, image):
@@ -1374,24 +1393,24 @@ class LaneDetector:
         return canny_image
 
 
-    def region_of_interest(self, image):
-        # specify the region we are interested in -> triangular
-        height = image.shape[0]  # row value
-        width = image.shape[1]  # column value
-
-        # polygons = np.array([
-        #     [(int(0.09 * width), height), (width, height), (width, 0), (int(0.09 * width), 0)]
-        # ])
-        polygons = np.array([
-            [(int(0.05 * width), int(0.8 * height)), (width, int(0.8 * height)),
-             (width, int(0.2 * height)), (int(0.05 * width), int(0.2 * height))]
-        ])
-
-        mask = np.zeros_like(image)
-        cv2.fillPoly(mask, polygons, 255)
-        masked_image = cv2.bitwise_and(image, mask)
-
-        return masked_image
+    # def region_of_interest(self, image):
+    #     # specify the region we are interested in -> triangular
+    #     height = image.shape[0]  # row value
+    #     width = image.shape[1]  # column value
+    #
+    #     # polygons = np.array([
+    #     #     [(int(0.09 * width), height), (width, height), (width, 0), (int(0.09 * width), 0)]
+    #     # ])
+    #     polygons = np.array([
+    #         [(int(0.05 * width), int(0.8 * height)), (width, int(0.8 * height)),
+    #          (width, int(0.2 * height)), (int(0.05 * width), int(0.2 * height))]
+    #     ])
+    #
+    #     mask = np.zeros_like(image)
+    #     cv2.fillPoly(mask, polygons, 255)
+    #     masked_image = cv2.bitwise_and(image, mask)
+    #
+    #     return masked_image
 
 
     def region_of_interest_left(self, image):
@@ -1428,18 +1447,18 @@ class LaneDetector:
 
 
     # check roi image
-    def roi_image(self, image):
-        height = image.shape[0]
-        width = image.shape[1]
-
-        polygons = np.array([
-            [(int(0.05 * width), int(0.8 * height)), (width, int(0.8 * height)),
-             (width, int(0.2 * height)), (int(0.05 * width), int(0.2 * height))]
-        ])
-
-        roi_image = cv2.polylines(image, [polygons], True, (0, 0, 255), 10)
-
-        return roi_image
+    # def roi_image(self, image):
+    #     height = image.shape[0]
+    #     width = image.shape[1]
+    #
+    #     polygons = np.array([
+    #         [(int(0.05 * width), int(0.8 * height)), (width, int(0.8 * height)),
+    #          (width, int(0.2 * height)), (int(0.05 * width), int(0.2 * height))]
+    #     ])
+    #
+    #     roi_image = cv2.polylines(image, [polygons], True, (0, 0, 255), 10)
+    #
+    #     return roi_image
 
 
     def left_roi_image(self, image):
@@ -1470,14 +1489,14 @@ class LaneDetector:
         return roi_image
 
 
-    def display_lines(self, image, lines):
-        line_image = np.zeros_like(image)
-        if lines is not None:
-            for line in lines:
-                x1, y1, x2, y2 = map(int, line)
-                cv2.line(line_image, (x1, y1), (x2, y2), (0, 0, 255), 10)
-
-        return line_image
+    # def display_lines(self, image, lines):
+    #     line_image = np.zeros_like(image)
+    #     if lines is not None:
+    #         for line in lines:
+    #             x1, y1, x2, y2 = map(int, line)
+    #             cv2.line(line_image, (x1, y1), (x2, y2), (0, 0, 255), 10)
+    #
+    #     return line_image
 
 
     def display_left_lines(self, image, lines):
@@ -1501,27 +1520,27 @@ class LaneDetector:
 
 
 
-    def display_origin_line(self, image, lines):
-        line_image = np.zeros_like(image)
-        if lines is not None:
-            for line in lines:
-                for x1, y1, x2, y2 in line:
-                    cv2.line(image, (x1, y1), (x2, y2), (255, 0, 0), 10)
+    # def display_origin_line(self, image, lines):
+    #     line_image = np.zeros_like(image)
+    #     if lines is not None:
+    #         for line in lines:
+    #             for x1, y1, x2, y2 in line:
+    #                 cv2.line(image, (x1, y1), (x2, y2), (255, 0, 0), 10)
+    #
+    #     return line_image
 
-        return line_image
 
-
-    def calculate_angle(self, left_line, right_line):
-        if left_line is not None and right_line is not None:
-            left_slope = (left_line[3] - left_line[1]) / (left_line[2] - left_line[0])
-            right_slope = (right_line[3] - right_line[1]) / (right_line[2] - right_line[0])
-
-            angle_rad = np.arctan(abs((right_slope - left_slope) / (1 + left_slope * right_slope)))
-            angle_deg = np.degrees(angle_rad)
-            return angle_deg
-
-        else:
-            return None
+    # def calculate_angle(self, left_line, right_line):
+    #     if left_line is not None and right_line is not None:
+    #         left_slope = (left_line[3] - left_line[1]) / (left_line[2] - left_line[0])
+    #         right_slope = (right_line[3] - right_line[1]) / (right_line[2] - right_line[0])
+    #
+    #         angle_rad = np.arctan(abs((right_slope - left_slope) / (1 + left_slope * right_slope)))
+    #         angle_deg = np.degrees(angle_rad)
+    #         return angle_deg
+    #
+    #     else:
+    #         return None
 
     def run_lane_detection(self):
         lane_image = np.copy(self.camera_image)
@@ -1593,6 +1612,8 @@ class LaneDetector:
         if right_lines is not None:
             # right_line_point = self.right_line_points(lane_image, right_lines)
             right_line_point = self.right_line_points(cropped_image_right, right_lines)
+            distance_ratio = self.right_lines_distance_ratio(cropped_image_right, self.right_space_line)
+            self.parking_space_detection(distance_ratio)
 
             if right_line_point is not None:
                 right_line_image = self.display_left_lines(lane_image, right_line_point)
@@ -1610,7 +1631,7 @@ class LaneDetector:
         # cv2.imshow('polylines', self.roi_image(combined_image))
         # cv2.imshow('left_roi_image', self.left_roi_image(combined_image))
         cv2.imshow('combined_left_image', self.left_roi_image(combined_left_image))
-        # cv2.imshow('combined_right_image', self.right_roi_image(combined_right_image))
+        cv2.imshow('combined_right_image', self.right_roi_image(combined_right_image))
         # cv2.imshow('edges', canny_image)
         cv2.waitKey(1)
 
