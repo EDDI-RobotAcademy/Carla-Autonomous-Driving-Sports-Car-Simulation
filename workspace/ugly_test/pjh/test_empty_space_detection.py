@@ -10,7 +10,7 @@ from colorama import Fore, Style
 
 
 current_dir = os.path.dirname(__file__)
-lidar_data_folder_path = os.path.join(current_dir, "lidar_output")
+lidar_data_folder_path = os.path.join(current_dir, "../../resources/lidar_output")
 
 
 def get_local_ply():
@@ -23,6 +23,7 @@ def get_local_ply():
     return point_clouds
 
 
+# visualize 3D geometry lines of every single unit distances
 def get_grid_lineset(h_min_val, h_max_val, w_min_val, w_max_val, ignore_axis, grid_length=1, nth_line=5):
     assert (h_min_val % 2 == 0) and (h_max_val % 2 == 0) and (w_min_val % 2 == 0) and (w_max_val % 2 == 0)
 
@@ -105,6 +106,7 @@ class TestEmptySpaceDetection(unittest.TestCase):
     ego_vehicle_box.color = (0, 1, 0)
 
     empty_space_box = None
+    empty_space_side = ''
 
     bbox_objects = []
 
@@ -178,7 +180,8 @@ class TestEmptySpaceDetection(unittest.TestCase):
                     self.empty_space_box = o3d.geometry.AxisAlignedBoundingBox(min_bound=empty_space_box_min_bound,
                                                                                max_bound=empty_space_box_max_bound)
                     self.empty_space_box.color = (0.5, 0.3, 0.1)
-                    self.relocation_point_index = self.empty_space_box.get_center()[1]
+                    self.relocation_point_index = round(self.empty_space_box.get_center()[1], 2)
+                    self.empty_space_side = 'b'
                 elif not self.left_detection and self.right_detection:
                     print(
                         f'{Fore.RED}Left side of ego vehicle is empty space! (maybe a parking lot){Style.RESET_ALL}')
@@ -187,9 +190,8 @@ class TestEmptySpaceDetection(unittest.TestCase):
                     self.empty_space_box = o3d.geometry.AxisAlignedBoundingBox(min_bound=empty_space_box_min_bound,
                                                                                max_bound=empty_space_box_max_bound)
                     self.empty_space_box.color = (0.5, 0.3, 0.1)
-                    self.relocation_point_index = self.empty_space_box.get_center()[1]
-                    print(
-                        f'{Fore.RED}Left side of ego vehicle is empty space! (maybe a parking lot){Style.RESET_ALL}')
+                    self.relocation_point_index = round(self.empty_space_box.get_center()[1], 2)
+                    self.empty_space_side = 'l'
                 elif not self.right_detection and self.left_detection:
                     print(
                         f'{Fore.RED}Right side of ego vehicle is empty space! (maybe a parking lot){Style.RESET_ALL}')
@@ -199,9 +201,11 @@ class TestEmptySpaceDetection(unittest.TestCase):
                                                                                max_bound=empty_space_box_max_bound)
                     self.empty_space_box.color = (0.5, 0.3, 0.1)
                     self.relocation_point_index = round(self.empty_space_box.get_center()[1], 2)
+                    self.empty_space_side = 'r'
                 elif abs(self.step_count) >= 50:
                     print(
                         f'{Fore.RED}Ego vehicle should be relocated! (no empty space in detection range){Style.RESET_ALL}')
+                    self.ego_vehicle_box = None
                 else:
                     print(
                         f'{Fore.RED}Ego vehicle bounding box should be relocated! (no empty space currently){Style.RESET_ALL}')
@@ -228,18 +232,13 @@ class TestEmptySpaceDetection(unittest.TestCase):
 
             detection_loop()
 
-            print("Number of Bounding Box : ", len(self.bbox_objects))
-            print("Relocation Point Index : ", self.relocation_point_index)
+            print(f"{Fore.BLUE}Number of Bounding Box : {len(self.bbox_objects)}{Style.RESET_ALL}")
+            print(f"{Fore.BLUE}Relocation Point Index : {self.relocation_point_index}{Style.RESET_ALL}")
 
             # Record relocation point index
-            with open('data.txt', 'r+') as file:
-                lines = file.readlines()
-                if lines:
-                    lines[0] = str(round(self.relocation_point_index, 3))
-                    file.seek(0)
-                    file.writelines(lines)
-                else:
-                    file.write(str(round(self.relocation_point_index, 3)) + '\n')
+            with open('../../resources/data.txt', 'r+') as file:
+                file.write(str(round(self.relocation_point_index, 3)) + '\n')
+                file.write(str(self.empty_space_side))
 
             # Draw geometries to explain situation
             list_of_visuals = []
@@ -270,16 +269,17 @@ class TestEmptySpaceDetection(unittest.TestCase):
             vis.add_geometry(lineset_nth_yz)
             vis.add_geometry(lineset_nth_zx)
             vis.add_geometry(lineset_nth_xy)
-            vis.add_geometry(self.ego_vehicle_box)
-            vis.add_geometry(self.empty_space_box)
+            if self.ego_vehicle_box is not None:
+                vis.add_geometry(self.ego_vehicle_box)
+            if self.empty_space_box is not None:
+                vis.add_geometry(self.empty_space_box)
 
             vis.run()
             vis.destroy_window()
 
         finally:
-            # if os.path.exists(lidar_data_folder_path):
-            #     shutil.rmtree(lidar_data_folder_path)
-            pass
+            if os.path.exists(lidar_data_folder_path):
+                shutil.rmtree(lidar_data_folder_path)
 
 
 if __name__ == '__main__':
