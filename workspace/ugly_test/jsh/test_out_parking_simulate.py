@@ -44,36 +44,78 @@ class CarlaParkVehicle():
                 continue
             self.vehicle.apply_control(
                 carla.VehicleControl(throttle=0.3, steer=0.5, brake=0.0))
-            print(self.vehicle.get_location())
 
-
-    def park(self):
+    def find_parking_location(self):
         while True:
             self.vehicle.apply_control(carla.VehicleControl(throttle=0.3, steer=0.0, brake=0.0, reverse=False))
-            print(self.vehicle.get_location())
             if self.vehicle.get_location().y > -20:
                 self.vehicle.apply_control(carla.VehicleControl(throttle=0.0, steer=0.0, brake=1.0, reverse=False))
                 break
         while True:
             self.vehicle.apply_control(carla.VehicleControl(throttle=0.2, steer=0.3, brake=0.0, reverse=False))
-            print(self.vehicle.get_location())
             if self.vehicle.get_transform().rotation.yaw > 179.5:
                 self.vehicle.apply_control(carla.VehicleControl(throttle=0.0, steer=0.0, brake=1.0, reverse=False))
                 break
         while True:
-            self.vehicle.apply_control(carla.VehicleControl(throttle=0.1, steer=0.3, brake=0.0, reverse=False))
-            print(self.vehicle.get_location())
-            print(self.vehicle.get_transform().rotation.yaw)
+            self.vehicle.apply_control(carla.VehicleControl(throttle=0.15, steer=0.3, brake=0.0, reverse=False))
             if abs(self.vehicle.get_transform().rotation.yaw) < 89.5:
+                print(self.vehicle.get_location())
+                self.vehicle.apply_control(carla.VehicleControl(throttle=0.0, steer=0.0, brake=1.0, reverse=False))
+                break
+        while True:
+            self.vehicle.apply_control(carla.VehicleControl(throttle=0.15, steer=0.15, brake=0.0, reverse=False))
+            if self.vehicle.get_location().x > -1.5:
+                self.vehicle.apply_control(carla.VehicleControl(throttle=0.0, steer=0.0, brake=1.0, reverse=False))
+                break
+        while True:
+            self.vehicle.apply_control(carla.VehicleControl(throttle=0.15, steer=-0.3, brake=0.0, reverse=False))
+            if abs(self.vehicle.get_transform().rotation.yaw) > 89.5:
+                print(self.vehicle.get_location())
                 self.vehicle.apply_control(carla.VehicleControl(throttle=0.0, steer=0.0, brake=1.0, reverse=False))
                 break
         while True:
             self.vehicle.apply_control(carla.VehicleControl(throttle=0.1, steer=0.0, brake=0.0, reverse=False))
-            if self.vehicle.get_location().y < -35:
+            if self.vehicle.get_location().y < -39.5:
                 self.vehicle.apply_control(carla.VehicleControl(throttle=0.0, steer=0.0, brake=1.0, reverse=False))
-                time.sleep(2)
                 break
 
+    def parking_left(self):
+        while True:
+            self.vehicle.apply_control(carla.VehicleControl(throttle=0.2, steer=0.8, brake=0.0, reverse=False))
+            if abs(self.vehicle.get_transform().rotation.yaw) < 60.5:
+                self.vehicle.apply_control(carla.VehicleControl(throttle=0.0, steer=0.0, brake=1.0, reverse=False))
+                break
+        while True:
+            self.vehicle.apply_control(carla.VehicleControl(throttle=0.2, steer=-0.8, brake=0.0, reverse=True))
+            if abs(self.vehicle.get_transform().rotation.yaw) < 0.5:
+                self.vehicle.apply_control(carla.VehicleControl(throttle=0.0, steer=0.0, brake=1.0, reverse=False))
+                break
+        while True:
+            self.vehicle.apply_control(carla.VehicleControl(throttle=0.2, steer=0, brake=0.0, reverse=True))
+            if self.vehicle.get_location().x < -6.5:
+                print(self.vehicle.get_transform())
+                self.vehicle.apply_control(carla.VehicleControl(throttle=0.0, steer=0.0, brake=1.0, reverse=False))
+                time.sleep(5)
+                break
+
+    def parking_right(self):
+        while True:
+            self.vehicle.apply_control(carla.VehicleControl(throttle=0.2, steer=-0.8, brake=0.0, reverse=False))
+            if abs(self.vehicle.get_transform().rotation.yaw) > 120.5:
+                self.vehicle.apply_control(carla.VehicleControl(throttle=0.0, steer=0.0, brake=1.0, reverse=False))
+                break
+        while True:
+            self.vehicle.apply_control(carla.VehicleControl(throttle=0.2, steer=0.8, brake=0.0, reverse=True))
+            if abs(self.vehicle.get_transform().rotation.yaw) > 178.0:
+                self.vehicle.apply_control(carla.VehicleControl(throttle=0.0, steer=0.0, brake=1.0, reverse=False))
+                break
+        while True:
+            self.vehicle.apply_control(carla.VehicleControl(throttle=0.2, steer=0, brake=0.0, reverse=True))
+            if self.vehicle.get_location().x > 3.5:
+                print(self.vehicle.get_transform())
+                self.vehicle.apply_control(carla.VehicleControl(throttle=0.0, steer=0.0, brake=1.0, reverse=False))
+                time.sleep(5)
+                break
 
     def destroy(self):
         print('destroying actors')
@@ -89,7 +131,9 @@ class CarlaParkVehicle():
         # wait for ros-bridge to set up CARLA world
 
         self.move_to_init_parking()
-        self.park()
+        self.find_parking_location()
+        #self.parking_left()
+        self.parking_right()
 
 
 # ==============================================================================
