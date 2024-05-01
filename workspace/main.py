@@ -424,6 +424,9 @@ class World(object):
         if self.player is not None:
             self.player.destroy()
 
+    def result_parking_side(self):
+        return self.parking_side
+
 
 # ==============================================================================
 # -- KeyboardControl -----------------------------------------------------------
@@ -1134,7 +1137,7 @@ class LineOfSightSensor(object):
             self._event_count += 1
 
 # ==============================================================================
-# -- CameraManager -------------------------------------------------------------
+# -- LidarSensor -------------------------------------------------------------
 # ==============================================================================
 
 
@@ -1176,6 +1179,7 @@ class CameraManager(object):
             # (carla.Transform(carla.Location(z=3), carla.Rotation(yaw=-90.0)), Attachment.Rigid),
             # (carla.Transform(carla.Location(y=-1.3, z=1), carla.Rotation(pitch=15.0, yaw=-90.0)), Attachment.Rigid),
             (carla.Transform(carla.Location(x=0.0, z=30.0), carla.Rotation(pitch=-90.0)), Attachment.Rigid),
+            (carla.Transform(carla.Location(z=8.0), carla.Rotation(pitch=-90.0)), Attachment.Rigid),
             # (carla.Transform(carla.Location(x=-3, y=-bound_y, z=0.5)), Attachment.Rigid),
             # (carla.Transform(carla.Location(x=-3, y=bound_y, z=0.5)), Attachment.Rigid),
             # (carla.Transform(carla.Location(x=bound_x, y=2, z=0.5), carla.Rotation(yaw=-180.0)), Attachment.Rigid),
@@ -1291,6 +1295,10 @@ class CameraManager(object):
             array = array[:, :, :3]
             array = array[:, :, ::-1]
             self.surface = pygame.surfarray.make_surface(array.swapaxes(0, 1))
+
+            global Camera_image
+            Camera_image = array.copy()
+
         if self.recording:
             image.save_to_disk('_out/%08d' % image.frame)
 
@@ -1331,6 +1339,301 @@ class CameraManager(object):
 
 
 # ==============================================================================
+# -- LaneDetector ---------------------------------------------------------------
+# ==============================================================================
+class LaneDetector:
+    def __init__(self, camera_image, result_parking_side):
+        self.camera_image = camera_image
+
+        # manage detected lines
+        self.left_space_line = []
+        self.right_space_line = []
+
+        self.result_parking_side = result_parking_side
+
+    def left_line_points(self, image, lines):
+        left_line1_point, left_line2_point = [], []
+        for line in lines:
+            x1, y1, x2, y2 = line[0]
+
+
+            if 0 < x1 < image.shape[1] and 0 < x2 < image.shape[1]:
+                if 0 < y1 < image.shape[0]/2 and 0 < y2 < image.shape[0]/2:
+                    left_line1_point.append(np.array([x1, y1, x2, y2]))
+
+                elif image.shape[0] * 0.4 < y1 < image.shape[0] and image.shape[0] * 0.4 < y2 < image.shape[0]:
+                    left_line2_point.append(np.array([x1, y1, x2, y2]))
+
+        if left_line1_point and left_line2_point:
+            left_line1_max = np.max(left_line1_point, axis=0)
+            left_line2_max = np.max(left_line2_point, axis=0)
+
+            left_line1_min = np.min(left_line1_point, axis=0)
+            left_line2_min = np.min(left_line2_point, axis=0)
+
+            # adjust to fit in the middle of the line
+            left_line1_y1_average = (left_line1_max[1] + left_line1_min[1])/2
+            left_line1_y2_average = (left_line1_max[3] + left_line1_min[3])/2
+
+            left_line2_y1_average = (left_line2_max[1] + left_line2_min[1]) / 2
+            left_line2_y2_average = (left_line2_max[3] + left_line2_min[3]) / 2
+
+            left_line1 = np.array([left_line1_min[0], left_line1_y1_average, left_line1_max[2], left_line1_y2_average])
+            left_line2 = np.array([left_line2_min[0], left_line2_y1_average, left_line2_max[2], left_line2_y2_average])
+
+            self.left_space_line = np.array([left_line1, left_line2])
+
+            return np.array([left_line1, left_line2])
+
+
+        elif left_line1_point and not left_line2_point:
+            left_line1_max = np.max(left_line1_point, axis=0)
+            left_line1_min = np.min(left_line1_point, axis=0)
+
+            left_line1_y1_average = (left_line1_max[1] + left_line1_min[1]) / 2
+            left_line1_y2_average = (left_line1_max[3] + left_line1_min[3]) / 2
+
+            left_line1 = np.array([left_line1_min[0], left_line1_y1_average, left_line1_max[2], left_line1_y2_average])
+            self.left_space_line = np.array([left_line1])
+
+            return np.array([left_line1])
+
+        elif not left_line1_point and left_line2_point:
+            left_line2_max = np.max(left_line2_point, axis=0)
+            left_line2_min = np.min(left_line2_point, axis=0)
+
+            left_line2_y1_average = (left_line2_max[1] + left_line2_min[1]) / 2
+            left_line2_y2_average = (left_line2_max[3] + left_line2_min[3]) / 2
+
+            left_line2 = np.array([left_line2_min[0], left_line2_y1_average, left_line2_max[2], left_line2_y2_average])
+            self.left_space_line = np.array([left_line2])
+
+            return np.array([left_line2])
+
+
+    def right_line_points(self, image, lines):
+        right_line1_point, right_line2_point = [], []
+        for line in lines:
+            x1, y1, x2, y2 = line[0]
+
+            if 0 < x1 < image.shape[1] and 0 < x2 < image.shape[1]:
+                if 0 < y1 < image.shape[0]/2 and 0 < y2 < image.shape[0]/2:
+                    right_line1_point.append(np.array([x1, y1, x2, y2]))
+
+                elif image.shape[0] * 0.4 < y1 < image.shape[0] and image.shape[0] * 0.4 < y2 < image.shape[0]:
+                    right_line2_point.append(np.array([x1, y1, x2, y2]))
+
+        if right_line1_point and right_line2_point:
+            right_line1_max = np.max(right_line1_point, axis=0)
+            right_line2_max = np.max(right_line2_point, axis=0)
+
+            right_line1_min = np.min(right_line1_point, axis=0)
+            right_line2_min = np.min(right_line2_point, axis=0)
+
+            right_line1_y1_average = (right_line1_max[1] + right_line1_min[1]) / 2
+            right_line1_y2_average = (right_line1_max[3] + right_line1_min[3]) / 2
+
+            right_line2_y1_average = (right_line2_max[1] + right_line2_min[1]) / 2
+            right_line2_y2_average = (right_line2_max[3] + right_line2_min[3]) / 2
+
+            right_line1 = np.array([right_line1_min[0], right_line1_y1_average, right_line1_max[2], right_line1_y2_average])
+            right_line2 = np.array([right_line2_min[0], right_line2_y1_average, right_line2_max[2], right_line2_y2_average])
+
+            self.right_space_line = np.array([right_line1, right_line2])
+
+            return np.array([right_line1, right_line2])
+
+
+        elif right_line1_point and not right_line2_point:
+            right_line1_max = np.max(right_line1_point, axis=0)
+            right_line1_min = np.min(right_line1_point, axis=0)
+
+            right_line1_y1_average = (right_line1_max[1] + right_line1_min[1]) / 2
+            right_line1_y2_average = (right_line1_max[3] + right_line1_min[3]) / 2
+
+            right_line1 = np.array([right_line1_min[0], right_line1_y1_average, right_line1_max[2], right_line1_y2_average])
+            self.right_space_line = np.array([right_line1])
+
+            return np.array([right_line1])
+
+
+        elif not right_line1_point and right_line2_point:
+            right_line2_max = np.max(right_line2_point, axis=0)
+            right_line2_min = np.min(right_line2_point, axis=0)
+
+            right_line2_y1_average = (right_line2_max[1] + right_line2_min[1]) / 2
+            right_line2_y2_average = (right_line2_max[3] + right_line2_min[3]) / 2
+
+            right_line2 = np.array([right_line2_min[0], right_line2_y1_average, right_line2_max[2], right_line2_y2_average])
+            self.right_space_line = np.array([right_line2])
+
+            return np.array([right_line2])
+
+
+    def lines_distance_ratio(self, image, line):
+
+        if len(line) == 2:
+            image_height = image.shape[0]
+            distance_lines = line[1][1] - line[0][1]
+            distance_ratio = distance_lines / float(image_height)
+            return distance_ratio
+
+        else:
+            return 0
+
+    def parking_space_detection(self, distance_ratio):
+        if distance_ratio > 0.29:
+            print("Parking available!")
+            return True
+
+        else:
+            print("No parking available!")
+            return False
+
+
+    def canny(self, image):
+        gray_image = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
+        blurred_image = cv2.GaussianBlur(gray_image, (5, 5), 0)
+        canny_image = cv2.Canny(blurred_image, 50, 150)
+        return canny_image
+
+
+    def region_of_interest_left(self, image):
+        height = image.shape[0]
+        width = image.shape[1]
+
+        polygons = np.array([
+            [(int(0.1 * width), int(0.8 * height)), (int(0.4 * width), int(0.8 * height)),
+             (int(0.4 * width), int(0.2 * height)), (int(0.1 * width), int(0.2 * height))]
+        ])
+
+        mask = np.zeros_like(image)
+        cv2.fillPoly(mask, polygons, 255)
+        masked_image = cv2.bitwise_and(image, mask)
+
+        return masked_image
+
+
+    def region_of_interest_right(self, image):
+        height = image.shape[0]
+        width = image.shape[1]
+
+        polygons = np.array([
+            [(int(0.6 * width), int(0.8 * height)), (int(0.9 * width), int(0.8 * height)),
+             (int(0.9 * width), int(0.2 * height)), (int(0.6 * width), int(0.2 * height))]
+        ])
+
+        mask = np.zeros_like(image)
+        cv2.fillPoly(mask, polygons, 255)
+        masked_image = cv2.bitwise_and(image, mask)
+
+        return masked_image
+
+
+
+    def left_roi_image(self, image):
+        height = image.shape[0]
+        width = image.shape[1]
+
+        polygons = np.array([
+            [(int(0.1 * width), int(0.8 * height)), (int(0.4 * width), int(0.8 * height)),
+             (int(0.4 * width), int(0.2 * height)), (int(0.1 * width), int(0.2 * height))]
+        ])
+
+        roi_image = cv2.polylines(image, [polygons], True, (0, 255, 0), 10)
+
+        return roi_image
+
+
+    def right_roi_image(self, image):
+        height = image.shape[0]
+        width = image.shape[1]
+
+        polygons = np.array([
+            [(int(0.6 * width), int(0.8 * height)), (int(0.9 * width), int(0.8 * height)),
+             (int(0.9 * width), int(0.2 * height)), (int(0.6 * width), int(0.2 * height))]
+        ])
+
+        roi_image = cv2.polylines(image, [polygons], True, (0, 255, 0), 10)
+
+        return roi_image
+
+
+    def display_left_lines(self, image, lines):
+        line_image = np.zeros_like(image)
+        if lines is not None:
+            for line in lines:
+                x1, y1, x2, y2 = map(int, line)
+                cv2.line(line_image, (x1, y1), (x2, y2), (0, 255, 0), 10)
+
+        return line_image
+
+
+    def display_right_lines(self, image, lines):
+        line_image = np.zeros_like(image)
+        if lines is not None:
+            for line in lines:
+                x1, y1, x2, y2 = map(int, line)
+                cv2.line(line_image, (x1, y1), (x2, y2), (0, 255, 0), 10)
+
+        return line_image
+
+
+    def run_lane_detection(self):
+        lane_image = np.copy(self.camera_image)
+        canny_image = self.canny(lane_image)
+
+        if self.result_parking_side == 'l' or self.result_parking_side == 'b':
+
+            # left_line
+            cropped_image_left = self.region_of_interest_left(canny_image)
+            left_lines = cv2.HoughLinesP(
+                cropped_image_left, 1, np.pi / 180, 15, np.array([]), minLineLength=10, maxLineGap=10)
+
+            if left_lines is not None:
+                left_line_point = self.left_line_points(cropped_image_left, left_lines)
+                distance_ratio = self.lines_distance_ratio(cropped_image_left, self.left_space_line)
+                self.parking_space_detection(distance_ratio)
+
+                if left_line_point is not None:
+                    left_line_image = self.display_left_lines(lane_image, left_line_point)
+                    combined_left_image = cv2.addWeighted(lane_image, 0.8, left_line_image, 1, 1)
+
+                else:
+                    combined_left_image = lane_image
+
+            else:
+                combined_left_image = lane_image
+
+            cv2.imshow('combined_left_image', self.left_roi_image(combined_left_image))
+
+
+        elif self.result_parking_side == 'r':
+            # right_line
+            cropped_image_right = self.region_of_interest_right(canny_image)
+            right_lines = cv2.HoughLinesP(
+                cropped_image_right, 1, np.pi / 180, 15, np.array([]), minLineLength=10, maxLineGap=10)
+
+            if right_lines is not None:
+                right_line_point = self.right_line_points(cropped_image_right, right_lines)
+                distance_ratio = self.lines_distance_ratio(cropped_image_right, self.right_space_line)
+                self.parking_space_detection(distance_ratio)
+
+                if right_line_point is not None:
+                    right_line_image = self.display_left_lines(lane_image, right_line_point)
+                    combined_right_image = cv2.addWeighted(lane_image, 0.8, right_line_image, 1, 1)
+
+                else:
+                    combined_right_image = lane_image
+
+            else:
+                combined_right_image = lane_image
+
+            cv2.imshow('combined_right_image', self.right_roi_image(combined_right_image))
+
+        cv2.waitKey(1)
+
+# ==============================================================================
 # -- game_loop() ---------------------------------------------------------------
 # ==============================================================================
 
@@ -1355,6 +1658,7 @@ def game_loop(args):
         clock = pygame.time.Clock()
 
         player_moving = False
+        empty_space_relocation_finished = False
 
         while True:
             clock.tick_busy_loop(30)
@@ -1375,6 +1679,13 @@ def game_loop(args):
                 if world.parking_control is not None:
                     world.parking_control = None
                 player_moving = False
+                empty_space_relocation_finished = True
+
+            global Camera_image
+            if empty_space_relocation_finished:
+                lidar_result = world.result_parking_side()
+                lane_detector = LaneDetector(Camera_image, lidar_result)
+                lane_detector.run_lane_detection()
 
             pygame.display.flip()
 
