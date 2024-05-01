@@ -131,22 +131,23 @@ class TestEmptySpaceDetection(unittest.TestCase):
             pcd_3 = pcd_2.select_by_index(road_inliers, invert=True)
 
             # apply object detection algorithm by point cloud
-            clusterer = HDBSCAN(min_cluster_size=20)
+            # todo: fix the hyper parameters to optimize the simulation
+            clusterer = HDBSCAN(min_cluster_size=20, min_samples=10, cluster_selection_epsilon=0.1)
             clusterer.fit(np.array(pcd_3.points))
+            # labeling clusters with different color
             labels = clusterer.labels_
-
             max_label = labels.max()
             print(f'point cloud has {max_label + 1} clusters')
             colors = plt.get_cmap("tab20")(labels / max_label if max_label > 0 else 1)
             colors[labels < 0] = 0
             pcd_3.colors = o3d.utility.Vector3dVector(colors[:, :3])
-
             indexes = pd.Series(range(len(labels))).groupby(labels, sort=False).apply(list).tolist()
 
             MAX_POINTS = 4000
             MIN_POINTS = 100
-            DETECTIOM_MIN_POINTS = 30
+            DETECTIOM_MIN_POINTS = 10
 
+            # Detect empty space by recursively exploring space
             def detection_loop():
                 for i in range(0, len(indexes)):
                     nb_points = len(pcd_3.select_by_index(indexes[i]).points)
@@ -230,12 +231,17 @@ class TestEmptySpaceDetection(unittest.TestCase):
             print("Number of Bounding Box : ", len(self.bbox_objects))
             print("Relocation Point Index : ", self.relocation_point_index)
 
+            # Record relocation point index
             with open('data.txt', 'r+') as file:
                 lines = file.readlines()
-                lines[0] = str(round(self.relocation_point_index, 3))
-                file.seek(0)
-                file.writelines(lines)
+                if lines:
+                    lines[0] = str(round(self.relocation_point_index, 3))
+                    file.seek(0)
+                    file.writelines(lines)
+                else:
+                    file.write(str(round(self.relocation_point_index, 3)) + '\n')
 
+            # Draw geometries to explain situation
             list_of_visuals = []
             list_of_visuals.append(pcd_3)
             list_of_visuals.extend(self.bbox_objects)
