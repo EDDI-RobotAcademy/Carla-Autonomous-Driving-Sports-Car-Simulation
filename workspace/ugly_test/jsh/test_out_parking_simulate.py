@@ -54,7 +54,7 @@ class CarlaParkVehicle():
                 self.part_check_number += 1
                 break
             if self.vehicle.get_location().y > -20:
-                self.vehicle.apply_control(carla.VehicleControl(throttle=0.2, steer=0.3, brake=0.0, reverse=False))
+                self.vehicle.apply_control(carla.VehicleControl(throttle=0.2, steer=0.32, brake=0.0, reverse=False))
                 continue
             self.vehicle.apply_control(carla.VehicleControl(throttle=0.3, steer=0.0, brake=0.0, reverse=False))
 

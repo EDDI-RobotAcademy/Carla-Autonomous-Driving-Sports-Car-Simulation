@@ -1389,6 +1389,82 @@ def game_loop(args):
 
         pygame.quit()
 
+        ##################### enter_the_parking_lot ########################
+        # time.sleep(2)
+        # if enter_the_parking_lot:
+        #     if world.player.get_transform().rotation.yaw < 89.5:
+        #         world.player.apply_control(
+        #             carla.VehicleControl(throttle=0.0, steer=0.0, brake=1.0, reverse=True))
+        #         break
+        #     if world.player.get_location().x < 19.0:
+        #         world.player.apply_control(
+        #             carla.VehicleControl(throttle=0.3, steer=-0.5, brake=0.0, reverse=False))
+        #         continue
+        #     world.player.apply_control(
+        #         carla.VehicleControl(throttle=0.3, steer=0.5, brake=0.0))
+        #
+        ####################### find_a_parking_space ####################
+        # if find_a_parking_space_first:
+        #     if world.player.get_transform().rotation.yaw > 179.5:
+        #         world.player.apply_control(carla.VehicleControl(throttle=0.0, steer=0.0, brake=1.0, reverse=False))
+        #         break
+        #     if world.player.get_location().y > -20:
+        #         world.player.apply_control(carla.VehicleControl(throttle=0.2, steer=0.32, brake=0.0, reverse=False))
+        #         continue
+        #     world.player.apply_control(carla.VehicleControl(throttle=0.3, steer=0.0, brake=0.0, reverse=False))
+        # if find_a_parking_space_second:
+        #     if abs(world.player.get_transform().rotation.yaw) < 89.5:
+        #         world.player.apply_control(carla.VehicleControl(throttle=0.0, steer=0.0, brake=1.0, reverse=False))
+        #         break
+        #     world.player.apply_control(carla.VehicleControl(throttle=0.15, steer=0.3, brake=0.0, reverse=False))
+        # if find_a_parking_space_third:
+        #     if abs(world.player.get_transform().rotation.yaw) > 89.5:
+        #         world.player.apply_control(carla.VehicleControl(throttle=0.0, steer=0.0, brake=1.0, reverse=False))
+        #         break
+        #     if world.player.get_location().x > -1.5:
+        #         world.player.apply_control(carla.VehicleControl(throttle=0.15, steer=-0.3, brake=0.0, reverse=False))
+        #         continue
+        #     world.player.apply_control(carla.VehicleControl(throttle=0.15, steer=0.15, brake=0.0, reverse=False))
+        # if find_a_parking_space_fourth:
+        #     if world.player.get_location().y < -39.5:
+        #         world.player.apply_control(carla.VehicleControl(throttle=0.0, steer=0.0, brake=1.0, reverse=False))
+        #         break
+        #     world.player.apply_control(carla.VehicleControl(throttle=0.1, steer=0.0, brake=0.0, reverse=False))
+        #
+        #
+        ######################### park_on_the_right ##############################
+        # if park_on_the_right_first:
+        #     if abs(world.player.get_transform().rotation.yaw) > 120.5:
+        #         world.player.apply_control(carla.VehicleControl(throttle=0.0, steer=0.0, brake=1.0, reverse=False))
+        #         break
+        #     world.player.apply_control(carla.VehicleControl(throttle=0.2, steer=-0.8, brake=0.0, reverse=False))
+        # if park_on_the_right_second:
+        #     if abs(world.player.get_transform().rotation.yaw) > 178.0:
+        #         world.player.apply_control(carla.VehicleControl(throttle=0.0, steer=0.0, brake=1.0, reverse=False))
+        #         break
+        #     world.player.apply_control(carla.VehicleControl(throttle=0.2, steer=0.8, brake=0.0, reverse=True))
+        # if park_on_the_right_third:
+        #     if world.player.get_location().x > 3.5:
+        #         world.player.apply_control(carla.VehicleControl(throttle=0.0, steer=0.0, brake=1.0, reverse=False))
+        #         break
+        #     world.player.apply_control(carla.VehicleControl(throttle=0.2, steer=0, brake=0.0, reverse=True))
+        # ######################### park_on_the_left ##############################
+        # if park_on_the_left_first:
+        #     if abs(world.player.get_transform().rotation.yaw) < 60.5:
+        #         world.player.apply_control(carla.VehicleControl(throttle=0.0, steer=0.0, brake=1.0, reverse=False))
+        #         break
+        #     world.player.apply_control(carla.VehicleControl(throttle=0.2, steer=0.8, brake=0.0, reverse=False))
+        # if park_on_the_left_second:
+        #     if abs(world.player.get_transform().rotation.yaw) < 0.5:
+        #         world.player.apply_control(carla.VehicleControl(throttle=0.0, steer=0.0, brake=1.0, reverse=False))
+        #         break
+        #     world.player.apply_control(carla.VehicleControl(throttle=0.2, steer=-0.8, brake=0.0, reverse=True))
+        # if park_on_the_left_third:
+        #     if world.player.get_location().x < -6.5:
+        #         world.player.apply_control(carla.VehicleControl(throttle=0.0, steer=0.0, brake=1.0, reverse=False))
+        #         break
+        #     world.player.apply_control(carla.VehicleControl(throttle=0.2, steer=0, brake=0.0, reverse=True))
+
 
 # ==============================================================================
 # -- main() --------------------------------------------------------------------
