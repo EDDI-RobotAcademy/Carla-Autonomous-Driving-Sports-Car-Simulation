@@ -16,13 +16,13 @@ except IndexError:
 import random
 import numpy as np
 import carla
-from agents.navigation.agent import Agent
-from agents.navigation.local_planner_behavior import LocalPlanner, RoadOption
-from agents.navigation.global_route_planner import GlobalRoutePlanner
-from agents.navigation.global_route_planner_dao import GlobalRoutePlannerDAO
-from agents.navigation.types_behavior import Cautious, Aggressive, Normal
+from ugly_test.lhj.agents.navigation.agent import Agent
+from ugly_test.lhj.agents.navigation.local_planner_behavior import LocalPlanner, RoadOption
+from ugly_test.lhj.agents.navigation.global_route_planner import GlobalRoutePlanner
+from ugly_test.lhj.agents.navigation.global_route_planner_dao import GlobalRoutePlannerDAO
+from ugly_test.lhj.agents.navigation.types_behavior import Cautious, Aggressive, Normal
 
-from agents.tools.misc import get_speed, positive
+from ugly_test.lhj.agents.tools.misc import get_speed, positive
 
 class BehaviorAgent(Agent):
     """
@@ -85,8 +85,7 @@ class BehaviorAgent(Agent):
         vehicle based on the surrounding world.
         """
         self.speed = get_speed(self.vehicle)
-        self.speed_limit = 20
-        #self.speed_limit = self.vehicle.get_speed_limit()
+        self.speed_limit = 40
         self._local_planner.set_speed(self.speed_limit)
         self.direction = self._local_planner.target_road_option
         if self.direction is None:
@@ -179,7 +178,7 @@ class BehaviorAgent(Agent):
         light_id = self.vehicle.get_traffic_light().id if self.vehicle.get_traffic_light() is not None else -1
 
         if self.light_state == "Red":
-            if not waypoint.is_junction and (self.light_id_to_ignore != light_id or light_id == -1):
+            if not waypoint.is_junction and self.light_id_to_ignore != light_id:
                 return 1
             elif waypoint.is_junction and light_id != -1:
                 self.light_id_to_ignore = light_id
@@ -395,7 +394,7 @@ class BehaviorAgent(Agent):
                     self.vehicle.bounding_box.extent.y, self.vehicle.bounding_box.extent.x)
 
             # Emergency brake if the car is very close.
-            if distance < self.behavior.braking_distance:
+            if distance < self.behavior.walker_braking_distance:
                 return self.emergency_stop()
 
         # 2.2: Car following behaviors
@@ -418,7 +417,12 @@ class BehaviorAgent(Agent):
         # 4: Intersection behavior
 
         # Checking if there's a junction nearby to slow down
-        elif self.incoming_waypoint.is_junction and (self.incoming_direction == RoadOption.LEFT or self.incoming_direction == RoadOption.RIGHT):
+        if self.incoming_waypoint is None:
+            return self.emergency_stop()
+
+        if self.incoming_waypoint.is_junction and (self.incoming_direction == RoadOption.LEFT or
+                                                   self.incoming_direction == RoadOption.RIGHT or
+                                                   self.incoming_direction == RoadOption.STRAIGHT):
             control = self._local_planner.run_step(
                 target_speed=min(self.behavior.max_speed, self.speed_limit - 5), debug=debug)
 

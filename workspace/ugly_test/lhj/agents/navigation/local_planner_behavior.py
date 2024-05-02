@@ -23,7 +23,7 @@ from controller import VehiclePIDController
 
 
 
-from agents.tools.misc import distance_vehicle, draw_waypoints
+from ugly_test.lhj.agents.tools.misc import distance_vehicle, draw_waypoints
 
 
 class RoadOption(Enum):
@@ -56,7 +56,7 @@ class LocalPlanner(object):
     # (e.g. within 80% of total distance)
 
     # FPS used for dt
-    FPS = 20
+    FPS = 30
 
     def __init__(self, agent):
         """
@@ -76,8 +76,8 @@ class LocalPlanner(object):
         self._vehicle_controller = None
         self._global_plan = None
         self._pid_controller = None
-        self.waypoints_queue = deque(maxlen=20000)  # queue with tuples of (waypoint, RoadOption)
-        self._buffer_size = 5
+        self.waypoints_queue = deque(maxlen=200000)  # queue with tuples of (waypoint, RoadOption)
+        self._buffer_size = 4
         self._waypoint_buffer = deque(maxlen=self._buffer_size)
 
         self._init_controller()  # initializing controller
