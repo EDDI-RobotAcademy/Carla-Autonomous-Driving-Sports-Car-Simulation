@@ -231,6 +231,8 @@ class World(object):
         self.parking_side = ''
         self.parking_relocation_position = 0
 
+        self.parking_left = None
+
     def restart(self):
         self.player_max_speed = 1.589
         self.player_max_speed_fast = 3.713
@@ -1548,7 +1550,7 @@ class LaneDetector:
             if len(line) == 2:
                 roi_height = int(roi_polygons.shape[0] * 0.8)
                 distance_between_lines = line[1][1] - line[0][1]
-                move_distance = ((2.8/distance_between_lines) * (float(roi_height) - line[1][1])) + 0.4
+                move_distance = ((2.8/distance_between_lines) * (float(roi_height) - line[1][1])) + 2
                 self.result_move_distance = move_distance
 
                 print("move distance: ", move_distance)
@@ -1773,17 +1775,44 @@ def game_loop(args):
                 lane_detector.run_lane_detection()
 
                 world.move_to_line(lane_detector.get_move_distance())
+                print('player location: ', world.player.get_location().y)
+                print('location: ', abs(world.player.get_location().y - world.parking_relocation_position))
 
-                if abs(world.player.get_location().y - world.parking_relocation_position) < 3 and move_possibility:
-                    print('player location: ', world.player.get_location().y)
-                    print('location: ', abs(world.player.get_location().y - world.parking_relocation_position))
-                    world.player.apply_control(carla.VehicleControl(throttle=0.3, steer=0.0, brake=0.0, reverse=False))
+                if abs(world.player.get_location().y - world.parking_relocation_position) > 1.7 and move_possibility:
+                    # print('player location: ', world.player.get_location().y)
+                    # print('location: ', abs(world.player.get_location().y - world.parking_relocation_position))
+                    world.player.apply_control(carla.VehicleControl(throttle=0.1, steer=0.0, brake=0.0, reverse=False))
 
                 else:
-                    move_possibility = False
+                    move_possibility = None
 
-                if not move_possibility:
+                if move_possibility is None:
                     world.player.apply_control(carla.VehicleControl(throttle=0.0, steer=0.0, brake=1.0, reverse=False))
+                    empty_space_relocation_finished = False
+                    world.parking_left = 1
+
+
+            if world.parking_left == 1:
+                if abs(world.player.get_transform().rotation.yaw) < 60.5:
+                    world.player.apply_control(
+                        carla.VehicleControl(throttle=0.0, steer=0.0, brake=1.0, reverse=False))
+                    world.parking_left += 1
+                    continue
+                world.player.apply_control(carla.VehicleControl(throttle=0.2, steer=0.8, brake=0.0, reverse=False))
+            elif world.parking_left == 2:
+                if abs(world.player.get_transform().rotation.yaw) < 0.5:
+                    world.player.apply_control(
+                        carla.VehicleControl(throttle=0.0, steer=0.0, brake=1.0, reverse=False))
+                    world.parking_left += 1
+                    continue
+                world.player.apply_control(carla.VehicleControl(throttle=0.2, steer=-0.8, brake=0.0, reverse=True))
+            elif world.parking_left == 3:
+                if world.player.get_location().x < -6.5:
+                    world.player.apply_control(
+                        carla.VehicleControl(throttle=0.0, steer=0.0, brake=1.0, reverse=False))
+                    world.parking_left += 1
+                    continue
+                world.player.apply_control(carla.VehicleControl(throttle=0.2, steer=0, brake=0.0, reverse=True))
 
 
                 # if not move_possibility:
