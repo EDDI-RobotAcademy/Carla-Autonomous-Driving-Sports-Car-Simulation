@@ -395,6 +395,30 @@ class World(object):
 
         print('moving to {}'.format(self.parking_relocation_position))
 
+
+    def move_to_line(self, move_distance):
+
+        current_location_y = self.player.get_location().y
+        compass = self.imu_sensor.compass
+
+        if compass > 355 or compass < 5:  # north
+            target_location_y = current_location_y - move_distance
+
+        elif 175 < compass < 185:  # south
+            target_location_y = current_location_y + move_distance
+
+        else:
+            print('The player is too tilted!')
+            return
+
+        if int(move_distance) == -4444:
+            print('The player should move position!')
+            return
+
+        self.parking_relocation_position = target_location_y
+        print('parking relocation position: ', self.parking_relocation_position)
+
+
     def tick(self, clock):
         self.hud.tick(self, clock)
 
@@ -426,7 +450,7 @@ class World(object):
         if self.player is not None:
             self.player.destroy()
 
-    def result_parking_side(self):
+    def get_result_parking_side(self):
         return self.parking_side
 
 
@@ -1349,14 +1373,32 @@ class CameraManager(object):
 # -- LaneDetector ---------------------------------------------------------------
 # ==============================================================================
 class LaneDetector:
+    _instance = None
+
+    def __new__(cls, *args, **kwargs):
+        if not cls._instance:
+            cls._instance = super().__new__(cls)
+
+        return cls._instance
+
     def __init__(self, camera_image, result_parking_side):
-        self.camera_image = camera_image
+        if not hasattr(self, 'initialized'):
+            self.camera_image = camera_image
 
-        # manage detected lines
-        self.left_space_line = []
-        self.right_space_line = []
+            # manage detected lines
+            self.left_space_line = []
+            self.right_space_line = []
 
-        self.result_parking_side = result_parking_side
+            # LiDAR result(l/b/r)
+            self.result_parking_side = result_parking_side
+
+            # line detection result(T/F)
+            self.line_detection_result = None
+            # move distance
+            self.result_move_distance = None
+            # T/F
+            self.move_distance_control = True
+            self.initialized = True
 
     def left_line_points(self, image, lines):
         left_line1_point, left_line2_point = [], []
@@ -1488,16 +1530,35 @@ class LaneDetector:
         else:
             return 0
 
+
     def parking_space_detection(self, distance_ratio):
         if distance_ratio > 0.29:
             print("Parking available!")
-            print(self.left_space_line)
-            print(self.right_space_line)
-            return True
+            # print(self.left_space_line)
+            # print(self.right_space_line)
+            self.line_detection_result = True
 
         else:
-            print("No parking available!")
-            return False
+            # print("No parking available!")
+            self.line_detection_result = False
+
+
+    def move_distance(self, roi_polygons, line):
+        if self.line_detection_result is True:
+            if len(line) == 2:
+                roi_height = int(roi_polygons.shape[0] * 0.8)
+                distance_between_lines = line[1][1] - line[0][1]
+                move_distance = ((2.8/distance_between_lines) * (float(roi_height) - line[1][1])) + 0.4
+                self.result_move_distance = move_distance
+
+                print("move distance: ", move_distance)
+
+        else:
+            self.result_move_distance = 0
+
+
+    def get_move_distance(self):
+        return self.result_move_distance
 
 
     def canny(self, image):
@@ -1605,6 +1666,10 @@ class LaneDetector:
                 left_line_point = self.left_line_points(cropped_image_left, left_lines)
                 distance_ratio = self.lines_distance_ratio(cropped_image_left, self.left_space_line)
                 self.parking_space_detection(distance_ratio)
+                if self.move_distance_control:
+                    self.move_distance(cropped_image_left, self.left_space_line)
+                    self.move_distance_control = False
+
 
                 if left_line_point is not None:
                     left_line_image = self.display_left_lines(lane_image, left_line_point)
@@ -1629,6 +1694,9 @@ class LaneDetector:
                 right_line_point = self.right_line_points(cropped_image_right, right_lines)
                 distance_ratio = self.lines_distance_ratio(cropped_image_right, self.right_space_line)
                 self.parking_space_detection(distance_ratio)
+                if self.move_distance_control:
+                    self.move_distance(cropped_image_right, self.right_space_line)
+                    self.move_distance_control = False
 
                 if right_line_point is not None:
                     right_line_image = self.display_left_lines(lane_image, right_line_point)
@@ -1672,6 +1740,8 @@ def game_loop(args):
         empty_space_relocation_finished = False
         camera_setting_for_line_detection = False
 
+        move_possibility = True
+
         while True:
             clock.tick_busy_loop(30)
             if controller.parse_events(client, world, clock):
@@ -1698,9 +1768,31 @@ def game_loop(args):
 
             global Camera_image
             if empty_space_relocation_finished:
-                lidar_result = world.result_parking_side()
+                lidar_result = world.get_result_parking_side()
                 lane_detector = LaneDetector(Camera_image, lidar_result)
                 lane_detector.run_lane_detection()
+
+                world.move_to_line(lane_detector.get_move_distance())
+
+                if abs(world.player.get_location().y - world.parking_relocation_position) < 3 and move_possibility:
+                    print('player location: ', world.player.get_location().y)
+                    print('location: ', abs(world.player.get_location().y - world.parking_relocation_position))
+                    world.player.apply_control(carla.VehicleControl(throttle=0.3, steer=0.0, brake=0.0, reverse=False))
+
+                else:
+                    move_possibility = False
+
+                if not move_possibility:
+                    world.player.apply_control(carla.VehicleControl(throttle=0.0, steer=0.0, brake=1.0, reverse=False))
+
+
+                # if not move_possibility:
+                #     world.player.apply_control(carla.VehicleControl(throttle=0.0, steer=0.0, brake=1.0, reverse=False))
+                #
+                # elif abs(world.player.get_location().y - world.parking_relocation_position) < 0.3 and move_possibility:
+                #     print('location: ', abs(world.player.get_location().y - world.parking_relocation_position))
+                #     world.player.apply_control(carla.VehicleControl(throttle=0.3, steer=0.0, brake=0.0, reverse=False))
+                #     move_possibility = False
 
             pygame.display.flip()
 
