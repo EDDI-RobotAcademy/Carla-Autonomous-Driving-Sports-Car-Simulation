@@ -85,7 +85,7 @@ class BehaviorAgent(Agent):
         vehicle based on the surrounding world.
         """
         self.speed = get_speed(self.vehicle)
-        self.speed_limit = 40
+        self.speed_limit = 35
         self._local_planner.set_speed(self.speed_limit)
         self.direction = self._local_planner.target_road_option
         if self.direction is None:
