@@ -232,6 +232,7 @@ class World(object):
         self.parking_relocation_position = 0
 
         self.parking_left = None
+        self.parking_right = None
 
     def restart(self):
         self.player_max_speed = 1.589
@@ -1701,7 +1702,7 @@ class LaneDetector:
                     self.move_distance_control = False
 
                 if right_line_point is not None:
-                    right_line_image = self.display_left_lines(lane_image, right_line_point)
+                    right_line_image = self.display_right_lines(lane_image, right_line_point)
                     combined_right_image = cv2.addWeighted(lane_image, 0.8, right_line_image, 1, 1)
 
                 else:
@@ -1789,7 +1790,29 @@ def game_loop(args):
                 if move_possibility is None:
                     world.player.apply_control(carla.VehicleControl(throttle=0.0, steer=0.0, brake=1.0, reverse=False))
                     empty_space_relocation_finished = False
-                    world.parking_left = 1
+                    if lidar_result == 'l' or lidar_result == 'b':
+                        world.parking_left = 1
+                    elif lidar_result == 'r':
+                        world.parking_right = 1
+
+            if world.parking_right == 1:
+                if abs(world.player.get_transform().rotation.yaw) > 120.5:
+                    world.player.apply_control(carla.VehicleControl(throttle=0.0, steer=0.0, brake=1.0, reverse=False))
+                    world.parking_right += 1
+                    continue
+                world.player.apply_control(carla.VehicleControl(throttle=0.2, steer=-0.8, brake=0.0, reverse=False))
+            if world.parking_right == 2:
+                if abs(world.player.get_transform().rotation.yaw) > 178.0:
+                    world.player.apply_control(carla.VehicleControl(throttle=0.0, steer=0.0, brake=1.0, reverse=False))
+                    world.parking_right += 1
+                    continue
+                world.player.apply_control(carla.VehicleControl(throttle=0.2, steer=0.8, brake=0.0, reverse=True))
+            if world.parking_right == 3:
+                if world.player.get_location().x > 3.5:
+                    world.player.apply_control(carla.VehicleControl(throttle=0.0, steer=0.0, brake=1.0, reverse=False))
+                    world.parking_right += 1
+                    continue
+                world.player.apply_control(carla.VehicleControl(throttle=0.2, steer=0, brake=0.0, reverse=True))
 
 
             if world.parking_left == 1:
