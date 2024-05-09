@@ -32,6 +32,10 @@ import carla
 from carla import ColorConverter as cc
 from carla import VehicleLightState as vls
 
+from ugly_test.lhj.agents.navigation.behavior_agent import BehaviorAgent  # pylint: disable=import-error
+from ugly_test.lhj.agents.navigation.roaming_agent import RoamingAgent  # pylint: disable=import-error
+from ugly_test.lhj.agents.navigation.basic_agent import BasicAgent  # pylint: disable=import-error
+
 import argparse
 import collections
 import datetime
@@ -55,6 +59,7 @@ try:
     from pygame.locals import K_ESCAPE
     from pygame.locals import K_F1
     from pygame.locals import K_F2
+    from pygame.locals import K_F3
     from pygame.locals import K_LEFT
     from pygame.locals import K_PERIOD
     from pygame.locals import K_RIGHT
@@ -206,6 +211,8 @@ class World(object):
         self._weather_index = 0
         self._actor_filter = args.filter
         self._gamma = args.gamma
+        self.agent = None
+        self.behavior = args.behavior
         self.restart()
         self.world.on_tick(hud.on_world_tick)
         self.recording_enabled = False
@@ -225,14 +232,28 @@ class World(object):
             carla.MapLayer.Walls,
             carla.MapLayer.All
         ]
-
+        self.run_agent_loop = False
+        self.parking_start = None
         self.parking_control = None
         self.parking_break = False
         self.parking_side = ''
         self.parking_relocation_position = 0
-
         self.parking_left = None
         self.parking_right = None
+        self.redirection_index = None
+        self.player_moving = False
+        self.empty_space_relocation_finished = False
+        self.camera_setting_for_line_detection = False
+
+        self.agent_finish_index = 1
+
+        self.lidar_on = False
+        self.lidar_start_time = None
+
+        self.lidar_result = None
+        self.lane_detector = None
+        self.move_to_line_finished = False
+        self.move_possibility = True
 
     def restart(self):
         self.player_max_speed = 1.589
@@ -270,9 +291,40 @@ class World(object):
                 print('There are no spawn points available in your map/town.')
                 print('Please add some Vehicle Spawn Point to your UE4 scene.')
                 sys.exit(1)
-            spawn_points = self.map.get_spawn_points()
+            # spawn_points = self.map.get_spawn_points()
+            spawn_points = [
+                carla.Transform(carla.Location(x=28.071249, y=54.347977, z=0.023353),
+                                carla.Rotation(pitch=0.000000, yaw=90.022896, roll=0.000000)),
+                carla.Transform(carla.Location(x=-44.100086, y=-22.870922, z=0.016574),
+                                carla.Rotation(pitch=0.000000, yaw=-90.337494, roll=0.000000)),
+                carla.Transform(carla.Location(x=-96.992477, y=2.785407, z=0.023068),
+                                carla.Rotation(pitch=0.000000, yaw=-0.139465, roll=0.000000)),
+                carla.Transform(carla.Location(x=-120.149292, y=120.387146, z=0.024010),
+                                carla.Rotation(pitch=0.000000, yaw=-90.511383, roll=0.000000)),
+                carla.Transform(carla.Location(x=42.381199, y=-190.132568, z=0.025190),
+                                carla.Rotation(pitch=0.000000, yaw=-0.242950, roll=0.000000)),
+                carla.Transform(carla.Location(x=193.240585, y=-11.067821, z=0.024443),
+                                carla.Rotation(pitch=0.000000, yaw=89.330902, roll=0.000000)),
+                carla.Transform(carla.Location(x=-50.695999, y=55.467949, z=0.006970),
+                                carla.Rotation(pitch=0.000000, yaw=90.379257, roll=0.000000)),
+                carla.Transform(carla.Location(x=-88.977310, y=87.964859, z=0.023505),
+                                carla.Rotation(pitch=0.000000, yaw=-179.934418, roll=0.000000)),
+                carla.Transform(carla.Location(x=33.726768, y=-104.398766, z=0.024461),
+                                carla.Rotation(pitch=0.000000, yaw=-88.467949, roll=0.000000)),
+                carla.Transform(carla.Location(x=-18.793718, y=-84.422150, z=0.024456),
+                                carla.Rotation(pitch=0.000000, yaw=0.086306, roll=0.000000)),
+            ]
             spawn_point = random.choice(spawn_points) if spawn_points else carla.Transform()
             self.player = self.world.try_spawn_actor(blueprint, spawn_point)
+            # test_spawn_point = carla.Transform(carla.Location(x=10, y=-84, z=0.024456),
+            #                     carla.Rotation(pitch=0.000000, yaw=0, roll=0.000000))
+            # self.player = self.world.try_spawn_actor(blueprint, test_spawn_point)
+        # Set up agent
+        if self.agent is not None:
+            self.agent = None
+        self.agent = BehaviorAgent(self.player, behavior=self.behavior)
+        first_destination_point = carla.Location(x=16, y=-84)  # location parking lot entry
+        self.agent.set_destination(self.agent.vehicle.get_location(), first_destination_point, clean=True)
         # Set up the sensors.
         self.collision_sensor = CollisionSensor(self.player, self.hud)
         self.lane_invasion_sensor = LaneInvasionSensor(self.player, self.hud)
@@ -282,8 +334,8 @@ class World(object):
         self.camera_manager.transform_index = cam_pos_index
         self.camera_manager.set_sensor(cam_index, notify=False)
         actor_type = get_actor_display_name(self.player)
+        # print('transform: ' + str(self.agent.vehicle.get_transform()))
         self.hud.notification(actor_type)
-        print(self.player.bounding_box.location)
 
     def next_weather(self, reverse=False):
         self._weather_index += -1 if reverse else 1
@@ -322,6 +374,9 @@ class World(object):
             self.los_sensor.sensor.destroy()
             self.los_sensor = None
             self.hud.notification('LineOfSightSensor Off')
+
+    def run_agent_mode(self):
+        self.run_agent_loop = True
 
     def toggle_lidar(self):
         if self.lidar_sensor is None:
@@ -398,17 +453,19 @@ class World(object):
 
         print('moving to {}'.format(self.parking_relocation_position))
 
-
     def move_to_line(self, move_distance):
 
         current_location_y = self.player.get_location().y
         compass = self.imu_sensor.compass
+        target_location_y = 0
 
         if compass > 355 or compass < 5:  # north
             target_location_y = current_location_y - move_distance
+            self.redirection_index = -1
 
         elif 175 < compass < 185:  # south
             target_location_y = current_location_y + move_distance
+            self.redirection_index = 1
 
         else:
             print('The player is too tilted!')
@@ -420,7 +477,6 @@ class World(object):
 
         self.parking_relocation_position = target_location_y
         print('parking relocation position: ', self.parking_relocation_position)
-
 
     def tick(self, clock):
         self.hud.tick(self, clock)
@@ -526,6 +582,8 @@ class KeyboardControl(object):
                     world.toggle_parked_vehicles()
                 elif event.key == K_F2:
                     world.fix_ego_vehicle_location_to_adjacent_empty_space()
+                elif event.key == K_F3:
+                    world.run_agent_mode()
                 elif event.key == K_BACKQUOTE:
                     world.camera_manager.next_sensor()
                 elif event.key == K_n:
@@ -630,7 +688,7 @@ class KeyboardControl(object):
                     elif event.key == K_x:
                         current_lights ^= carla.VehicleLightState.RightBlinker
 
-        if not self._autopilot_enabled:
+        if not self._autopilot_enabled and not world.run_agent_loop:
             if isinstance(self._control, carla.VehicleControl):
                 self._parse_vehicle_keys(pygame.key.get_pressed(), clock.get_time())
                 self._control.reverse = self._control.gear < 0
@@ -1553,11 +1611,11 @@ class LaneDetector:
                 distance_between_lines = line[1][1] - line[0][1]
                 move_distance = ((2.8/distance_between_lines) * (float(roi_height) - line[1][1])) + 2
                 self.result_move_distance = move_distance
-
-                print("move distance: ", move_distance)
-
         else:
+            print('sibal here?!')
             self.result_move_distance = 0
+
+        print("move distance: ", self.result_move_distance)
 
 
     def get_move_distance(self):
@@ -1684,7 +1742,7 @@ class LaneDetector:
             else:
                 combined_left_image = lane_image
 
-            cv2.imshow('combined_left_image', self.left_roi_image(combined_left_image))
+            # cv2.imshow('combined_left_image', self.left_roi_image(combined_left_image))
 
 
         elif self.result_parking_side == 'r':
@@ -1711,9 +1769,9 @@ class LaneDetector:
             else:
                 combined_right_image = lane_image
 
-            cv2.imshow('combined_right_image', self.right_roi_image(combined_right_image))
+            # cv2.imshow('combined_right_image', self.right_roi_image(combined_right_image))
 
-        cv2.waitKey(1)
+        # cv2.waitKey(1)
 
 # ==============================================================================
 # -- game_loop() ---------------------------------------------------------------
@@ -1724,6 +1782,8 @@ def game_loop(args):
     pygame.init()
     pygame.font.init()
     world = None
+    parking_lot_position_index_for_left_parking = -31
+    parking_lot_position_index_for_right_parking = -37
 
     try:
         client = carla.Client(args.host, args.port)
@@ -1735,68 +1795,218 @@ def game_loop(args):
 
         hud = HUD(args.width, args.height)
         world = World(client.get_world(), hud, args)
-        controller = KeyboardControl(world, args.autopilot)
+        controller = KeyboardControl(world, False)
 
         clock = pygame.time.Clock()
 
-        player_moving = False
-        empty_space_relocation_finished = False
-        camera_setting_for_line_detection = False
-
-        move_possibility = True
+        world.toggle_parked_vehicles()
 
         while True:
             clock.tick_busy_loop(30)
             if controller.parse_events(client, world, clock):
                 return
+
+            if world.agent is not None:
+                world.agent.update_information()
             world.tick(clock)
             world.render(display)
 
+            current_location = world.player.get_location().y
+
+            if world.run_agent_loop and world.agent_finish_index == 1:
+                if len(world.agent.get_local_planner().waypoints_queue) == 0 and not args.loop:
+                    print("Target reached, first mission accomplished...")
+                    control = carla.VehicleControl(throttle=0, brake=0.5, steer=0.0)
+                    world.player.apply_control(control)
+                    if world.player.get_velocity() == carla.Vector3D(0, 0, 0):
+                        print('First Agent mode finished!')
+                        world.agent = BehaviorAgent(world.player, behavior=world.behavior)
+                        world.agent.set_destination(world.agent.vehicle.get_location(), carla.Location(x=24.7, y=-32), clean=True)
+                        world.agent_finish_index += 1
+
+                else:
+                    control = world.agent.run_step(debug=True)
+                    if control.throttle != 0.0:
+                        control.gear = 1
+                    world.player.apply_control(control)
+
+            if world.run_agent_loop and world.agent_finish_index == 2:
+                if len(world.agent.get_local_planner().waypoints_queue) == 0 and not args.loop:
+                    print("Target reached, second mission accomplished...")
+                    control = carla.VehicleControl(throttle=0, brake=0.5, steer=0.0)
+                    world.player.apply_control(control)
+                    if world.player.get_velocity() == carla.Vector3D(0, 0, 0):
+                        print('Second Agent mode finished!')
+                        world.run_agent_loop = False
+                        if int(world.agent.vehicle.get_location().y) < -35:
+                            print('A little bit more relocation is needed.. go forward!')
+                            world.agent_finish_index += 1
+                        elif int(world.player.get_location().y) >= -35:
+                            print('A little bit more relocation is needed.. go backward!')
+                            world.agent_finish_index += 2
+                        world.agent = None
+
+                else:
+                    control = world.agent.run_step(debug=True)
+                    if control.throttle != 0.0:
+                        control.gear = 1
+                    world.player.apply_control(control)
+
+            if world.agent_finish_index == 3:
+                if world.player.get_location().y > -35:
+                    control = carla.VehicleControl(throttle=0.0, brake=1.0, steer=0.0)
+                    world.player.apply_control(control)
+                    if world.player.get_velocity() == carla.Vector3D(0, 0, 0):
+                        print('All done!')
+                        world.agent_finish_index = -1
+                        world.parking_start = 1
+                else:
+                    control = carla.VehicleControl(throttle=0.3, brake=0.0, steer=0.0)
+                    world.player.apply_control(control)
+
+            if world.agent_finish_index == 4:
+                if world.player.get_location().y < -35:
+                    control = carla.VehicleControl(throttle=0.0, brake=1.0, steer=0.0)
+                    world.player.apply_control(control)
+                    if world.player.get_velocity() == carla.Vector3D(0, 0, 0):
+                        print('All done!')
+                        world.agent_finish_index = -1
+                        world.parking_start = 1
+                else:
+                    control = carla.VehicleControl(throttle=0.3, brake=0.0, steer=0.0, reverse=True)
+                    world.player.apply_control(control)
+
+            if world.parking_start is not None:
+                if world.parking_start == 1:
+                    if world.player.get_transform().rotation.yaw < 89.5:
+                        world.player.apply_control(
+                            carla.VehicleControl(throttle=0.0, steer=0.0, brake=1.0, reverse=True))
+                        world.parking_start += 1
+                        continue
+                    if world.player.get_location().x < 19.0:
+                        world.player.apply_control(
+                            carla.VehicleControl(throttle=0.3, steer=-0.5, brake=0.0, reverse=False))
+                        pygame.display.flip()
+                        continue
+                    world.player.apply_control(
+                        carla.VehicleControl(throttle=0.3, steer=0.5, brake=0.0))
+                elif world.parking_start == 2:
+                    if world.player.get_transform().rotation.yaw > 179.5:
+                        world.player.apply_control(carla.VehicleControl(throttle=0.0, steer=0.0, brake=1.0, reverse=False))
+                        world.parking_start += 1
+                        continue
+                    if world.player.get_location().y > -20:
+                        world.player.apply_control(carla.VehicleControl(throttle=0.2, steer=0.34, brake=0.0, reverse=False))
+                        pygame.display.flip()
+                        continue
+                    world.player.apply_control(carla.VehicleControl(throttle=0.3, steer=0.0, brake=0.0, reverse=False))
+                elif world.parking_start == 3:
+                    if abs(world.player.get_transform().rotation.yaw) < 89.5:
+                        world.player.apply_control(carla.VehicleControl(throttle=0.0, steer=0.0, brake=1.0, reverse=False))
+                        world.parking_start += 1
+                        continue
+                    world.player.apply_control(carla.VehicleControl(throttle=0.15, steer=0.3, brake=0.0, reverse=False))
+                elif world.parking_start == 4:
+                    if abs(world.player.get_transform().rotation.yaw) > 89.5:
+                        world.player.apply_control(carla.VehicleControl(throttle=0.0, steer=0.0, brake=1.0, reverse=False))
+                        world.parking_start += 1
+                        continue
+                    if world.player.get_location().x > -1.5:
+                        world.player.apply_control(carla.VehicleControl(throttle=0.15, steer=-0.3, brake=0.0, reverse=False))
+                        pygame.display.flip()
+                        continue
+                    world.player.apply_control(carla.VehicleControl(throttle=0.15, steer=0.15, brake=0.0, reverse=False))
+                elif world.parking_start == 5:
+                    if world.player.get_location().y < parking_lot_position_index_for_right_parking:
+                        world.player.apply_control(carla.VehicleControl(throttle=0.0, steer=0.0, brake=1.0, reverse=False))
+                        if world.player.get_velocity() == carla.Vector3D(0, 0, 0):
+                            world.parking_start += 1
+                        continue
+                    world.player.apply_control(carla.VehicleControl(throttle=0.1, steer=0.0, brake=0.0, reverse=False))
+                elif world.parking_start == 6:
+                    world.player.apply_control(carla.VehicleControl(throttle=0.0, steer=0.0, brake=1.0, reverse=False))
+                    if not world.lidar_on:
+                        world.toggle_lidar()
+                        world.lidar_on = True
+                    if world.lidar_start_time is None:
+                        world.lidar_start_time = time.time()
+                    if time.time() - world.lidar_start_time > 5 and world.lidar_on:
+                        world.toggle_lidar()
+                        world.lidar_on = False
+                        world.lidar_start_time = None
+                        world.parking_start = None
+
             if world.parking_control is not None:
                 world.player.apply_control(world.parking_control)
-                player_moving = True
+                world.player_moving = True
 
-            if abs(world.player.get_location().y - world.parking_relocation_position) < 0.07 and player_moving:
+            if abs(world.player.get_location().y - world.parking_relocation_position) < 0.07 and world.player_moving:
                 world.parking_break = True
                 world.parking_control = carla.VehicleControl(throttle=0.0, steer=0.0, brake=1.0, reverse=True)
 
             if world.parking_break and world.player.get_velocity() == carla.Vector3D(0, 0, 0):
                 if world.parking_control is not None:
                     world.parking_control = None
-                player_moving = False
-                empty_space_relocation_finished = True
-                if not camera_setting_for_line_detection:
+                world.player_moving = False
+                world.empty_space_relocation_finished = True
+                if not world.camera_setting_for_line_detection:
                     world.camera_manager.set_camera_with_option(1, 5)
-                    camera_setting_for_line_detection = True
+                    world.camera_setting_for_line_detection = True
+                    world.parking_break = False
 
             global Camera_image
-            if empty_space_relocation_finished:
-                lidar_result = world.get_result_parking_side()
-                lane_detector = LaneDetector(Camera_image, lidar_result)
-                lane_detector.run_lane_detection()
+            if world.empty_space_relocation_finished:
+                if world.lane_detector is None:
+                    world.lidar_result = world.get_result_parking_side()
+                    world.lane_detector = LaneDetector(Camera_image, world.lidar_result)
+                    world.lane_detector.run_lane_detection()
+                if not world.move_to_line_finished:
+                    world.move_to_line(world.lane_detector.get_move_distance())
+                    world.camera_manager.set_camera_with_option(1, 0)
+                    world.move_to_line_finished = True
 
-                world.move_to_line(lane_detector.get_move_distance())
-                print('player location: ', world.player.get_location().y)
-                print('location: ', abs(world.player.get_location().y - world.parking_relocation_position))
+                appliance = world.redirection_index * float(current_location - world.parking_relocation_position) + 2.3
+                print('appliance: ', appliance)
 
-                if abs(world.player.get_location().y - world.parking_relocation_position) > 1.7 and move_possibility:
-                    # print('player location: ', world.player.get_location().y)
-                    # print('location: ', abs(world.player.get_location().y - world.parking_relocation_position))
+                if appliance < 0 and world.move_possibility:
+                    print('relocation by lane detection..')
                     world.player.apply_control(carla.VehicleControl(throttle=0.1, steer=0.0, brake=0.0, reverse=False))
+                elif appliance >= 0 and world.move_possibility:
+                    print('lane detection and relocation is done!')
+                    world.move_possibility = False
 
-                else:
-                    move_possibility = None
+                if not world.move_possibility:
+                    if world.player.get_velocity() != carla.Vector3D(0, 0, 0):
+                        world.player.apply_control(carla.VehicleControl(throttle=0.0, steer=0.0, brake=1.0))
+                    elif world.parking_left is None and world.parking_right is None:
+                        if world.lidar_result == 'l' or world.lidar_result == 'b':
+                            print('Preparing left T parking..')
+                            world.parking_left = 1
+                            world.empty_space_relocation_finished = False
+                        elif world.lidar_result == 'r':
+                            print('Preparing right T parking..')
+                            world.parking_right = 1
+                            world.empty_space_relocation_finished = False
 
-                if move_possibility is None:
+            if world.parking_right == 1:
+                if abs(world.player.get_transform().rotation.yaw) > 120.5:
                     world.player.apply_control(carla.VehicleControl(throttle=0.0, steer=0.0, brake=1.0, reverse=False))
-                    empty_space_relocation_finished = False
-                    if lidar_result == 'l' or lidar_result == 'b':
-                        world.parking_left = 1
-                    elif lidar_result == 'r':
-                        world.parking_right = 1
-
-            print("parking side left", world.parking_left)
-            print("parking side right", world.parking_right)
+                    world.parking_right += 1
+                    continue
+                world.player.apply_control(carla.VehicleControl(throttle=0.2, steer=-0.8, brake=0.0, reverse=False))
+            elif world.parking_right == 2:
+                if abs(world.player.get_transform().rotation.yaw) > 178.0:
+                    world.player.apply_control(carla.VehicleControl(throttle=0.0, steer=0.0, brake=1.0, reverse=False))
+                    world.parking_right += 1
+                    continue
+                world.player.apply_control(carla.VehicleControl(throttle=0.2, steer=0.8, brake=0.0, reverse=True))
+            elif world.parking_right == 3:
+                if world.player.get_location().x > 3.5:
+                    world.player.apply_control(carla.VehicleControl(throttle=0.0, steer=0.0, brake=1.0, reverse=False))
+                    world.parking_right += 1
+                    print('right parking is finished!')
+                    continue
+                world.player.apply_control(carla.VehicleControl(throttle=0.2, steer=0, brake=0.0, reverse=True))
 
             if world.parking_left == 1:
                 if abs(world.player.get_transform().rotation.yaw) < 60.5:
@@ -1817,39 +2027,9 @@ def game_loop(args):
                     world.player.apply_control(
                         carla.VehicleControl(throttle=0.0, steer=0.0, brake=1.0, reverse=False))
                     world.parking_left += 1
+                    print('left parking is finished!')
                     continue
                 world.player.apply_control(carla.VehicleControl(throttle=0.2, steer=0, brake=0.0, reverse=True))
-
-            if world.parking_right == 1:
-                if abs(world.player.get_transform().rotation.yaw) > 120.5:
-                    world.player.apply_control(
-                        carla.VehicleControl(throttle=0.0, steer=0.0, brake=1.0, reverse=False))
-                    world.parking_right += 1
-                    continue
-                world.player.apply_control(carla.VehicleControl(throttle=0.2, steer=-0.8, brake=0.0, reverse=False))
-            elif world.parking_right == 2:
-                if abs(world.player.get_transform().rotation.yaw) > 178.0:
-                    world.player.apply_control(
-                        carla.VehicleControl(throttle=0.0, steer=0.0, brake=1.0, reverse=False))
-                    world.parking_right += 1
-                    continue
-                world.player.apply_control(carla.VehicleControl(throttle=0.2, steer=0.8, brake=0.0, reverse=True))
-            elif world.parking_right == 3:
-                if world.player.get_location().x > 3.5:
-                    world.player.apply_control(
-                        carla.VehicleControl(throttle=0.0, steer=0.0, brake=1.0, reverse=False))
-                    world.parking_right += 1
-                    continue
-                world.player.apply_control(carla.VehicleControl(throttle=0.2, steer=0, brake=0.0, reverse=True))
-
-
-                # if not move_possibility:
-                #     world.player.apply_control(carla.VehicleControl(throttle=0.0, steer=0.0, brake=1.0, reverse=False))
-                #
-                # elif abs(world.player.get_location().y - world.parking_relocation_position) < 0.3 and move_possibility:
-                #     print('location: ', abs(world.player.get_location().y - world.parking_relocation_position))
-                #     world.player.apply_control(carla.VehicleControl(throttle=0.3, steer=0.0, brake=0.0, reverse=False))
-                #     move_possibility = False
 
             pygame.display.flip()
 
@@ -1863,82 +2043,6 @@ def game_loop(args):
             world.destroy()
 
         pygame.quit()
-
-        ##################### enter_the_parking_lot ########################
-        # time.sleep(2)
-        # if enter_the_parking_lot:
-        #     if world.player.get_transform().rotation.yaw < 89.5:
-        #         world.player.apply_control(
-        #             carla.VehicleControl(throttle=0.0, steer=0.0, brake=1.0, reverse=True))
-        #         break
-        #     if world.player.get_location().x < 19.0:
-        #         world.player.apply_control(
-        #             carla.VehicleControl(throttle=0.3, steer=-0.5, brake=0.0, reverse=False))
-        #         continue
-        #     world.player.apply_control(
-        #         carla.VehicleControl(throttle=0.3, steer=0.5, brake=0.0))
-        #
-        ####################### find_a_parking_space ####################
-        # if find_a_parking_space_first:
-        #     if world.player.get_transform().rotation.yaw > 179.5:
-        #         world.player.apply_control(carla.VehicleControl(throttle=0.0, steer=0.0, brake=1.0, reverse=False))
-        #         break
-        #     if world.player.get_location().y > -20:
-        #         world.player.apply_control(carla.VehicleControl(throttle=0.2, steer=0.32, brake=0.0, reverse=False))
-        #         continue
-        #     world.player.apply_control(carla.VehicleControl(throttle=0.3, steer=0.0, brake=0.0, reverse=False))
-        # if find_a_parking_space_second:
-        #     if abs(world.player.get_transform().rotation.yaw) < 89.5:
-        #         world.player.apply_control(carla.VehicleControl(throttle=0.0, steer=0.0, brake=1.0, reverse=False))
-        #         break
-        #     world.player.apply_control(carla.VehicleControl(throttle=0.15, steer=0.3, brake=0.0, reverse=False))
-        # if find_a_parking_space_third:
-        #     if abs(world.player.get_transform().rotation.yaw) > 89.5:
-        #         world.player.apply_control(carla.VehicleControl(throttle=0.0, steer=0.0, brake=1.0, reverse=False))
-        #         break
-        #     if world.player.get_location().x > -1.5:
-        #         world.player.apply_control(carla.VehicleControl(throttle=0.15, steer=-0.3, brake=0.0, reverse=False))
-        #         continue
-        #     world.player.apply_control(carla.VehicleControl(throttle=0.15, steer=0.15, brake=0.0, reverse=False))
-        # if find_a_parking_space_fourth:
-        #     if world.player.get_location().y < -39.5:
-        #         world.player.apply_control(carla.VehicleControl(throttle=0.0, steer=0.0, brake=1.0, reverse=False))
-        #         break
-        #     world.player.apply_control(carla.VehicleControl(throttle=0.1, steer=0.0, brake=0.0, reverse=False))
-        #
-        #
-        ######################### park_on_the_right ##############################
-        # if park_on_the_right_first:
-        #     if abs(world.player.get_transform().rotation.yaw) > 120.5:
-        #         world.player.apply_control(carla.VehicleControl(throttle=0.0, steer=0.0, brake=1.0, reverse=False))
-        #         break
-        #     world.player.apply_control(carla.VehicleControl(throttle=0.2, steer=-0.8, brake=0.0, reverse=False))
-        # if park_on_the_right_second:
-        #     if abs(world.player.get_transform().rotation.yaw) > 178.0:
-        #         world.player.apply_control(carla.VehicleControl(throttle=0.0, steer=0.0, brake=1.0, reverse=False))
-        #         break
-        #     world.player.apply_control(carla.VehicleControl(throttle=0.2, steer=0.8, brake=0.0, reverse=True))
-        # if park_on_the_right_third:
-        #     if world.player.get_location().x > 3.5:
-        #         world.player.apply_control(carla.VehicleControl(throttle=0.0, steer=0.0, brake=1.0, reverse=False))
-        #         break
-        #     world.player.apply_control(carla.VehicleControl(throttle=0.2, steer=0, brake=0.0, reverse=True))
-        # ######################### park_on_the_left ##############################
-        # if park_on_the_left_first:
-        #     if abs(world.player.get_transform().rotation.yaw) < 60.5:
-        #         world.player.apply_control(carla.VehicleControl(throttle=0.0, steer=0.0, brake=1.0, reverse=False))
-        #         break
-        #     world.player.apply_control(carla.VehicleControl(throttle=0.2, steer=0.8, brake=0.0, reverse=False))
-        # if park_on_the_left_second:
-        #     if abs(world.player.get_transform().rotation.yaw) < 0.5:
-        #         world.player.apply_control(carla.VehicleControl(throttle=0.0, steer=0.0, brake=1.0, reverse=False))
-        #         break
-        #     world.player.apply_control(carla.VehicleControl(throttle=0.2, steer=-0.8, brake=0.0, reverse=True))
-        # if park_on_the_left_third:
-        #     if world.player.get_location().x < -6.5:
-        #         world.player.apply_control(carla.VehicleControl(throttle=0.0, steer=0.0, brake=1.0, reverse=False))
-        #         break
-        #     world.player.apply_control(carla.VehicleControl(throttle=0.2, steer=0, brake=0.0, reverse=True))
 
 
 # ==============================================================================
@@ -1965,10 +2069,10 @@ def main():
         default=2000,
         type=int,
         help='TCP port to listen to (default: 2000)')
-    argparser.add_argument(
-        '-a', '--autopilot',
-        action='store_true',
-        help='enable autopilot')
+    # argparser.add_argument(
+    #     '-a', '--autopilot',
+    #     action='store_true',
+    #     help='enable autopilot')
     argparser.add_argument(
         '--res',
         metavar='WIDTHxHEIGHT',
@@ -1992,15 +2096,15 @@ def main():
     argparser.add_argument(
         '-n', '--number-of-vehicles',
         metavar='N',
-        default=10,
+        default=5,
         type=int,
         help='number of vehicles (default: 10)')
     argparser.add_argument(
         '-w', '--number-of-walkers',
         metavar='W',
-        default=50,
+        default=5,
         type=int,
-        help='number of walkers (default: 50)')
+        help='number of walkers (default: 10)')
     argparser.add_argument(
         '--safe',
         action='store_true',
@@ -2039,6 +2143,21 @@ def main():
         action='store_true',
         default=False,
         help='Enanble car lights')
+    argparser.add_argument(
+        '-l', '--loop',
+        action='store_true',
+        dest='loop',
+        help='Sets a new random destination upon reaching the previous one (default: False)'
+    )
+    argparser.add_argument('-b', '--behavior', type=str,
+                           choices=["cautious", "normal", "aggressive"],
+                           help='Choose one of the possible agent behaviors (default: normal) ',
+                           default='normal')
+    argparser.add_argument("-a", "--agent", type=str,
+                           choices=["Behavior", "Roaming", "Basic"],
+                           help="select which agent to run",
+                           default="Behavior")
+
     args = argparser.parse_args()
 
     args.width, args.height = [int(x) for x in args.res.split('x')]
