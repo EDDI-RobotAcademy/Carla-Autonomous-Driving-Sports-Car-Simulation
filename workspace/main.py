@@ -1263,7 +1263,6 @@ class CameraManager(object):
         Attachment = carla.AttachmentType
         self._camera_transforms = [
             (carla.Transform(carla.Location(x=-10.5, z=2.5), carla.Rotation(pitch=8.0)), Attachment.Rigid),
-            # (carla.Transform(carla.Location(z=3), carla.Rotation(yaw=-90.0)), Attachment.Rigid),
             # (carla.Transform(carla.Location(y=-1.3, z=1), carla.Rotation(pitch=15.0, yaw=-90.0)), Attachment.Rigid),
             (carla.Transform(carla.Location(x=0.0, z=30.0), carla.Rotation(pitch=-90.0)), Attachment.Rigid),
             (carla.Transform(carla.Location(z=8.0), carla.Rotation(pitch=-90.0)), Attachment.Rigid),
@@ -1586,6 +1585,7 @@ class LaneDetector:
             image_height = image.shape[0]
             distance_lines = line[1][1] - line[0][1]
             distance_ratio = distance_lines / float(image_height)
+            print('d: ', distance_ratio)
             return distance_ratio
 
         else:
@@ -1593,7 +1593,7 @@ class LaneDetector:
 
 
     def parking_space_detection(self, distance_ratio):
-        if distance_ratio > 0.29:
+        if distance_ratio > 0.25:
             print("Parking available!")
             # print(self.left_space_line)
             # print(self.right_space_line)
@@ -1609,10 +1609,9 @@ class LaneDetector:
             if len(line) == 2:
                 roi_height = int(roi_polygons.shape[0] * 0.8)
                 distance_between_lines = line[1][1] - line[0][1]
-                move_distance = ((2.8/distance_between_lines) * (float(roi_height) - line[1][1])) + 2
+                move_distance = ((2.8/distance_between_lines) * (float(roi_height) - line[1][1]))
                 self.result_move_distance = move_distance
         else:
-            print('sibal here?!')
             self.result_move_distance = 0
 
         print("move distance: ", self.result_move_distance)
@@ -1870,6 +1869,7 @@ def game_loop(args):
                     world.player.apply_control(control)
                     if world.player.get_velocity() == carla.Vector3D(0, 0, 0):
                         print('All done!')
+                        world.camera_manager.toggle_camera()
                         world.agent_finish_index = -1
                         world.parking_start = 1
                 else:
@@ -1951,6 +1951,7 @@ def game_loop(args):
                 world.empty_space_relocation_finished = True
                 if not world.camera_setting_for_line_detection:
                     world.camera_manager.set_camera_with_option(1, 5)
+                    world.hud.notification("Relocation based on lane detection result", seconds=4.0)
                     world.camera_setting_for_line_detection = True
                     world.parking_break = False
 
@@ -1965,7 +1966,7 @@ def game_loop(args):
                     world.camera_manager.set_camera_with_option(1, 0)
                     world.move_to_line_finished = True
 
-                appliance = world.redirection_index * float(current_location - world.parking_relocation_position) + 2.3
+                appliance = world.redirection_index * float(current_location - world.parking_relocation_position) + 0.5
                 print('appliance: ', appliance)
 
                 if appliance < 0 and world.move_possibility:
